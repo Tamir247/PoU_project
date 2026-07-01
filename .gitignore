@@ -1,0 +1,44 @@
+# ------------------------------
+# OS / editor artifacts
+# ------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
+
+# ------------------------------
+# Stata session artifacts
+# ------------------------------
+*.log
+*.smcl
+*.tmp
+*.bak
+*.old
+
+# ------------------------------
+# Generated outputs / temp data
+# ------------------------------
+temp/
+output/
+
+# ------------------------------
+# Local raw extract folders
+# ------------------------------
+hses */
+input/
+# ------------------------------
+# Documents and upload leftovers
+# ------------------------------
+# docs/**/*.pdf
+docs/**/*.doc
+docs/**/*.docx
+# docs/**/*.ppt
+# docs/**/*.pptx
+docs/**/*.xls
+docs/**/*.xlsx
+docs/**/*.xlsm
+docs/**/__MACOSX__
+
