@@ -41,7 +41,7 @@ Under 5 mortality rate 16.9
 Emegtei humuusiin huwid jiremsehiig ni awch harin sudalgaand medeelel sugluulssan bol turultiin tuwshing ni totsoj ashiglana. Bid Proxy Ashiglana. Harin bhgui bol Busad eh uusverees garsan turultiin huwiig ni ashiglana. Emegtei hun 9 sar jiremsen bdag 3, 3, 3 saraar ni awch uzne. Ter 3 sard nogdoh kcal bdag - Pregnancy allowance = 210 kcal
 **********************/
 
-use "$data_out/indivdual_2024", clear 
+use "$data_out/indivdual_${survey_year}", clear
 keep identif ind_id hm_sex hm_age age_class height
 
 tab age_class hm_sex
@@ -219,7 +219,7 @@ preserve
 	save "$data_out/Requirement_HHLevel", replace 
 restore 
 
-merge m:1 identif using "$data_raw24/basicvars", keepus(urban region hhweight hhsize) nogen
+merge m:1 identif using "$data_raw/basicvars", keepus(urban region hhweight hhsize) nogen
 
 /*
 Umnu huwi hunii tushind MDER ADER XDER yamar bgaag deer todorhoilj harsan harin odoo us, bus nutgiin tuwshind yamar bhiig todorhoilii

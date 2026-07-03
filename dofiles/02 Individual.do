@@ -28,13 +28,22 @@ set more off
 ***                                                      ***
 ************************************************************
 
-	use "$data_raw24/02_indiv", clear
-		ren hses_id identif
-		drop q0101
-		
+	use "$data_raw/02_indiv", clear
+		* SPREAD-DATA ADAPTATION (2026-07-03): spread release already ships
+		* "identif" instead of "hses_id", and doesn't have "q0101" at all
+		* (not referenced again below, safe to skip).
+		capture rename hses_id identif
+		capture drop q0101
+
 		keep identif ind_id q01* q02* q03* q04*
 		keep if q0113==1
-		merge m:1 identif using "$data_raw24/basicvars", keepus(cluster household_id urban region newaimag location strata hhweight hhsize month) nogen
+		* SPREAD-DATA ADAPTATION (2026-07-03): "cluster" and "household_id"
+		* don't exist in the spread release's basicvars.dta -- dropped from
+		* keepusing(). household_id only ever fed the household-head export
+		* used by "03 Household.do" (poverty file, itself unable to run
+		* against spread data -- see 00 Master.do), so this has no
+		* consequence for the active pipeline here.
+		merge m:1 identif using "$data_raw/basicvars", keepus(urban region newaimag location strata hhweight hhsize month) nogen
 				
 		*********************************
 		* identifying the household head
@@ -196,9 +205,17 @@ set more off
 		replace twork=3 if twork==. & q0425==12 & q0412==1 & (q0423==61 | q0423==92 ) & (q0424==111 | q0424==112  | q0424==113 )
 		replace twork=3 if twork==. & q0425==13 & q0412==1 & (q0423==61 | q0423==92 ) & (q0424==111 | q0424==112  | q0424==113  )
 		replace twork=3 if twork==. & q0412==1 & (q0423==61 | q0423==92 ) & (q0424==111 | q0424==112  | q0424==113)
-		replace twork=. if twork==3 & q0412!=1 & q0423!=61 & q0423!=92  & q0424!=111 & q0424!=112  & q0424!=113 
-		replace twork=. if twork==3 & q0425==10 & (q0423a=="ÐœÐ°Ð»Ñ‡Ð¸Ð½" & q0423==61  & q0424==114)
-		replace twork=. if twork==3 & q0425==10 & (q0423a=="Ð¼Ð°Ð»Ñ‡Ð¸Ð½" & q0423==61  & q0424==114)
+		replace twork=. if twork==3 & q0412!=1 & q0423!=61 & q0423!=92  & q0424!=111 & q0424!=112  & q0424!=113
+		* SPREAD-DATA ADAPTATION (2026-07-03): q0423a (open-text occupation
+		* field, checked here for the literal text "Малчин"/"малчин" =
+		* "herder") doesn't exist in the spread release -- only q0423a and
+		* its siblings (q0424a/q0431a/q0432a/q0442a/q0443a) were stripped,
+		* the coded q0423/q0424/etc. fields these lines otherwise depend on
+		* are still present. This is a narrow exception rule refining twork
+		* for a specific text-match edge case; commented out rather than
+		* reworked since the source field is gone. Original:
+		*   replace twork=. if twork==3 & q0425==10 & (q0423a=="Малчин" & q0423==61  & q0424==114)
+		*   replace twork=. if twork==3 & q0425==10 & (q0423a=="малчин" & q0423==61  & q0424==114)
 		*
 		replace twork=4 if twork==. & q0425==5 | q0425==8  
 		replace twork=4 if twork==. & q0425==7 & q0412>=3 & q0412<=5
@@ -453,8 +470,11 @@ set more off
 
 		drop  q01*  q02* q03* q04* 
 		
-		order identif ind_id cluster newaimag urban region location strata relation head hoh_age hoh_agegroup10  sex age agegroup10 mstatus dmarried hhsize hhsize_group1 hhsize_group2 disability educa ///
-				eap emp unemp outlf potential_lf lfp extended_lf unemp_potential_lf twork eap_ind industry3 industry21 industry99 sector sector22  occupax occupa inc_tot_wage inc_tot_12_bonus  month hhweight household_id
+		* SPREAD-DATA ADAPTATION (2026-07-03): "cluster" and "household_id"
+		* dropped from this order/keep list -- neither exists in the spread
+		* release (see note at the top of this file).
+		order identif ind_id newaimag urban region location strata relation head hoh_age hoh_agegroup10  sex age agegroup10 mstatus dmarried hhsize hhsize_group1 hhsize_group2 disability educa ///
+				eap emp unemp outlf potential_lf lfp extended_lf unemp_potential_lf twork eap_ind industry3 industry21 industry99 sector sector22  occupax occupa inc_tot_wage inc_tot_12_bonus  month hhweight
 			// note: inc_tot_12 (annual wage) was dropped earlier; inc_tot_12_bonus kept
 		
 		label var ind_id "Individual ID"
@@ -484,12 +504,12 @@ set more off
 		sum
 		sort identif ind_id	
 		
-	 save "$data_temp/temp_indiv_24.dta", replace
+	 save "$data_temp/temp_indiv_${survey_year}.dta", replace
 
 *************************
 ** Household Head data
 **************************
-		use "$data_temp/temp_indiv_24.dta", clear
+		use "$data_temp/temp_indiv_${survey_year}.dta", clear
 
 		tab head 
 		tab sex
@@ -512,15 +532,20 @@ set more off
 		label var hhead_age_gp   "Household head's age group"
 		label var hhead_eact   "Household head's economic active"
 		
-		keep identif household_id head hhsize_group2 hhead_occupa hhead_edu hhead_age_gp hhead_gender hhead_eact 
-		sort identif 
-		save "$data_temp/temp_hhead_24", replace
+		* SPREAD-DATA ADAPTATION (2026-07-03): "household_id" dropped -- see
+		* note near the top of this file. This file (temp_hhead) is only
+		* consumed by "03 Household.do", which can't run against the spread
+		* release regardless (see 00 Master.do), so this has no downstream
+		* consequence here.
+		keep identif head hhsize_group2 hhead_occupa hhead_edu hhead_age_gp hhead_gender hhead_eact
+		sort identif
+		save "$data_temp/temp_hhead_${survey_year}", replace
 
 
 *************************************
 *** To Prepare Individual dataset for Adept
 *************************************
-	use "$data_temp/temp_indiv_24.dta", clear
+	use "$data_temp/temp_indiv_${survey_year}.dta", clear
 
 		rename relation hm_relation
 		rename dmarried hm_marital
@@ -545,5 +570,5 @@ set more off
 		label var height "Height for age group&gender"
 		
 sort identif ind_id
-saveold "$data_out/indivdual_2024", version(12) replace
+saveold "$data_out/indivdual_${survey_year}", version(12) replace
 

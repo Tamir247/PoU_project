@@ -28,8 +28,10 @@
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
 
 	** Urban 7 days diary
-		use "$data_raw24/16_urb_diary.dta", clear
-			rename hses_id identif
+		use "$data_raw/16_urb_diary.dta", clear
+			* SPREAD-DATA ADAPTATION (2026-07-03): the de-identified "spread"
+			* release already ships "identif" instead of "hses_id".
+			capture rename hses_id identif
 			rename q1301 qty
 			rename q1302 qty_purch
 			rename q1303 uv
@@ -61,12 +63,19 @@
 		// Because of confusion among enumerators on NSU questions, quality assurance was only done on q1405-q1410
 		// Ignore NSUs for now
 		
-	use "$data_raw24/17_rur_food_7d.dta", clear
-	rename hses_id identif
-		merge m:1 identif using "$data_raw24/basicvars.dta", keepusing(cluster)
-			drop if _m==2
-			drop _m
-		
+	use "$data_raw/17_rur_food_7d.dta", clear
+	* SPREAD-DATA ADAPTATION (2026-07-03): the de-identified "spread" release
+	* already ships "identif" instead of "hses_id".
+	capture rename hses_id identif
+		* SPREAD-DATA ADAPTATION (2026-07-03): "cluster" doesn't exist in the
+		* spread release's basicvars.dta. The merge here only ever fed two
+		* diagnostic `list` lines below and a final `drop cluster` -- no
+		* calculation depends on it -- so it's dropped rather than reworked.
+		* Original:
+		*   merge m:1 identif using "$data_raw/basicvars.dta", keepusing(cluster)
+		*   	drop if _m==2
+		*   	drop _m
+
 		recode q1401 (2=0), gen(consumed)
 		
 		rename q1404 qty
@@ -84,19 +93,46 @@
 		
 	** Basic checks
 		egen double tot=rowtotal(qty_purch qty_gift qty_own)
-		list cluster identif item qty* if tot==0 & consumed==1		
-		
-		// values from NSO
-		list identif qty* tot if clust==351 & item==10201 & consumed==1			// most HHs in PSU consume mutton from own consumption
-		replace qty=8 if tot==0 & consumed==1 & item==10201 & identif==243035101		
-		replace qty_own=8 if tot==0 & consumed==1 & item==10201 & identif==243035101		
-		
+		* SPREAD-DATA ADAPTATION (2026-07-03): both `list` lines below are
+		* diagnostic only (visual inspection, no calculation depends on
+		* them) and reference "cluster" (the second one via Stata's
+		* unambiguous-abbreviation "clust" -> "cluster"), which doesn't exist
+		* in the spread release. Commented out rather than reworked.
+		* Original:
+		*   list cluster identif item qty* if tot==0 & consumed==1
+		*   // values from NSO
+		*   list identif qty* tot if clust==351 & item==10201 & consumed==1  // most HHs in PSU consume mutton from own consumption
+		* kept as-is: harmless no-op against the spread release, since its
+		* identif values are a different (re-numbered) scheme -- see note
+		* below for why.
+		replace qty=8 if tot==0 & consumed==1 & item==10201 & identif==243035101
+		replace qty_own=8 if tot==0 & consumed==1 & item==10201 & identif==243035101
+
+		* SPREAD-DATA ADAPTATION (2026-07-03), REAL DATA-HANDLING CHANGE, not
+		* just a rename: the fix above targets one specific household by its
+		* full-release identif (243035101). The spread release re-numbers
+		* identif to plain sequential integers, so that fix no-ops here ("0
+		* real changes made") while the same underlying data problem
+		* (consumed==1 but zero quantity recorded from every source)
+		* resurfaces under a different id -- confirmed one case in this data:
+		* identif==8260, item 10201 (mutton). The original fix's replacement
+		* value (8 kg) was derived by inspecting neighboring households in
+		* the same cluster/PSU (see the commented-out `list ... if clust==
+		* 351...` above) -- that specific derivation isn't reproducible here
+		* since "cluster" doesn't exist in the spread release. Rather than
+		* invent an unsupported replacement quantity, this generically
+		* resolves any consumed==1-but-zero-quantity row by deferring to the
+		* recorded zero quantities (setting consumed=0) instead of crashing
+		* the assert below. Flagging this as a real judgment call, not a
+		* mechanical fix -- worth reviewing if it recurs for other items.
+		replace consumed=0 if consumed==1 & tot==0 & qty==0
+
 		assert qty==0 if consumed==0
 		assert qty!=0 if consumed==1
 		assert qty!=0 if consumed==1
 		assert tot==0 if consumed==0
 				
-		drop qty cluster tot 
+		drop qty tot
 		recode qty* (.=0)
 		
 		egen double qty=rowtotal(qty_purch qty_gift qty_own)
@@ -104,7 +140,10 @@
 		* define unit price
 		gen uv= purch_exp/purch_qty
 			recode uv (0=.)
-		compare uv price
+		* SPREAD-DATA ADAPTATION (2026-07-03): "price" doesn't exist in the
+		* spread release's rural recall file -- this was a diagnostic
+		* cross-check only (uv is what's actually used downstream), so
+		* commented out rather than reworked. Original: compare uv price
 		
 		drop purch30  purch_qty purch_exp 
 		
@@ -136,8 +175,13 @@
 	
 	
 	** // for 2024 data first fix some issues in salt
-		merge m:1 identif using "$data_raw24/basicvars.dta", keepus(newaimag interviewer) nogen
-		merge m:1 identif using "$data_temp/equivalence_scales24.dta", nogen keepusing(aesize_fao)
+		* SPREAD-DATA ADAPTATION (2026-07-03): "interviewer" doesn't exist in
+		* the spread release's basicvars.dta -- dropped from keepusing().
+		* Only used below for a diagnostic `table` breakdown (not for the
+		* actual SALT fix itself, which is based on qty/qty_p thresholds),
+		* so this is a display-only loss, not a calculation change.
+		merge m:1 identif using "$data_raw/basicvars.dta", keepus(newaimag) nogen
+		merge m:1 identif using "$data_temp/equivalence_scales${survey_year}.dta", nogen keepusing(aesize_fao)
 
 		
 		** 
@@ -160,8 +204,9 @@
 			table newaimag if item==11001, stat(mean check1 check2) nf(%7.3fc)  	// low: Govisumber
 			*table newaimag if item==11001, c(mean check1 mean check2)  	// low: Govisumber
 
-			table interviewer if item==11001, stat(mean check1 check2) nf(%7.3fc)  	
-			*table interviewer if item==11001, c(mean check1 mean check2)   	
+			* SPREAD-DATA ADAPTATION (2026-07-03): "interviewer" not available
+			* -- diagnostic breakdown only, no calculation depends on it.
+			* Original: table interviewer if item==11001, stat(mean check1 check2) nf(%7.3fc)
 
 			foreach x in  qty_purch qty_gift qty_own qty {
 				replace `x'=`x'*100 if qty<=0.5 & item==11001			// zero issues -> assume 100x
@@ -170,7 +215,7 @@
 			}
 
 			*drop newaimag interviewer aesize_fao qty_p check1 check2
-			drop newaimag interviewer check1 check2 qty_p
+			drop newaimag check1 check2 qty_p
 		
 		 
 		rename (qty qty_purch uv qty_gift qty_own ) (qtot qpur aprice qfree qown)
@@ -215,25 +260,45 @@
 			replace out=1 if item==`n'
 			}	
 		
-			gen visitor=visitor13
-				replace visitor=visitor14 if visitor==.
-			gen ndays=ndays13
-				replace ndays=ndays14 if ndays==.
-			* quick checks 
-					assert  mi(ndays) if visitor==0
-					assert  !mi(ndays) if visitor>0
-					drop price visitor13 visitor14 ndays13 ndays14 
-			
+			* SPREAD-DATA ADAPTATION (2026-07-03): visitor13/ndays13 (urban)
+			* and visitor14/ndays14/price (rural) don't exist in the spread
+			* release. Checked what visitor/ndays actually feed downstream:
+			* only the two `assert` sanity checks right below, plus an inert
+			* carry-through in `foodtemp1.dta` -- they're dropped (not kept)
+			* at the `keep identif item imprice daily_* out` step later in
+			* this file and never enter any calculation (daily_qty_gr,
+			* daily_exp, daily_rexp, etc.). So this block is commented out
+			* rather than reworked -- the trade-off is losing that specific
+			* data-quality gate, not any part of the actual DEC calculation.
+			* Original:
+			*   gen visitor=visitor13
+			*   	replace visitor=visitor14 if visitor==.
+			*   gen ndays=ndays13
+			*   	replace ndays=ndays14 if ndays==.
+			*   assert  mi(ndays) if visitor==0
+			*   assert  !mi(ndays) if visitor>0
+			*   drop price visitor13 visitor14 ndays13 ndays14
+
 		sort identif item
-			
+
 		** Merge basic vars
-		merge m:1 identif using "$data_raw24/basicvars.dta", keepus(cluster urban region location strata newaimag newsoum bag hhsize hhweight month quarter) nogen
-					
-		order cluster-strata, before(identif)
-		order survey perday hhsize aesize_fao visitor ndays hhweight month quarter out, last
-			
-			svyset cluster [pw=hhweight], strata(strata)
-			
+		* SPREAD-DATA ADAPTATION (2026-07-03): "cluster", "newsoum", "bag"
+		* don't exist in the spread release's basicvars.dta -- dropped from
+		* this merge's keepusing() list. See "01 Food.do" cluster-level price
+		* imputation note further below for the one place this actually
+		* matters for a calculation.
+		merge m:1 identif using "$data_raw/basicvars.dta", keepus(urban region location strata newaimag hhsize hhweight month quarter) nogen
+
+		order urban region location strata newaimag hhsize hhweight month quarter, before(identif)
+		order survey perday hhsize aesize_fao hhweight month quarter out, last
+
+			* SPREAD-DATA ADAPTATION (2026-07-03): "cluster" doesn't exist in
+			* the spread release. Confirmed elsewhere in this codebase that
+			* nothing actually uses this svyset declaration (no `svy:`
+			* prefixed command appears anywhere in the active pipeline), so
+			* it was already vestigial -- removed rather than reworked.
+			* Original: svyset cluster [pw=hhweight], strata(strata)
+
 			** Save temporary dataset
 				label var qtot0 "Quantity total, original-7days"
 				label var qpur0 "Quantity purchased, original-7days"
@@ -256,9 +321,6 @@
 				label var cons_own "Dummy for consumed from own"
 				label var out "Not include calculation"
 				label var aesize_fao "FAO-Per adult equivalence scale"
-				
-			label var visitor "Number of food partakers"
-			label var ndays   "Number of day/food partakers"
 
 			sort identif item
 			save "$data_temp/foodtemp1.dta", replace
@@ -266,12 +328,25 @@
 		***************************
 		* fixing unit values - for own use and free food
 		***************************
-			* cluster level
-				* now some clusters have more than 1 hhweight (due to the attempt of capturing informality)
-			use "$data_temp/foodtemp1.dta", clear
-				collapse (median) clusterprice=aprice [aw=hhweight], by(cluster item)
-			tempfile temp1
-			save `temp1', replace
+			* SPREAD-DATA ADAPTATION (2026-07-03), REAL METHODOLOGICAL CHANGE,
+			* not just a rename: "cluster" doesn't exist in the spread
+			* release, so the cluster-level rung of the price-imputation
+			* cascade (household -> cluster -> aimag/strata/month ->
+			* strata/month -> month -> national) can't be computed. Not
+			* cosmetic: a note in this project's legacy reference code
+			* (ref/foodsetup.do:1624) records that the cluster level
+			* historically supplied ~52.8% of all imputed prices -- the
+			* single most-used rung of the ladder. Without it, imputation
+			* falls straight through to the aimag/strata level for every
+			* household that would otherwise have used a cluster-level
+			* price. Commented out (not deleted) and flagged here rather
+			* than silently absorbed. Original:
+			*   * cluster level
+			*   	* now some clusters have more than 1 hhweight (due to the attempt of capturing informality)
+			*   use "$data_temp/foodtemp1.dta", clear
+			*   	collapse (median) clusterprice=aprice [aw=hhweight], by(cluster item)
+			*   tempfile temp1
+			*   save `temp1', replace
 
 			* aimag level
 			use "$data_temp/foodtemp1.dta", clear
@@ -303,8 +378,9 @@
 			egen hhprice      = median(aprice), by(identif item)
 			compress
 			
-				sort cluster item
-					merge m:m cluster item using `temp1', nogen
+				* SPREAD-DATA ADAPTATION (2026-07-03): cluster-level merge
+				* removed along with the cluster-level collapse above (see
+				* note there).
 				sort newaimag strata month item
 					merge m:m newaimag strata month item using `temp2', nogen
 				sort strata month item
@@ -317,7 +393,6 @@
 				sort identif item
 
 				label var hhprice "Household level price"
-				label var clusterprice "Cluster level price"
 				label var aimagprice "Aimag level price"
 				label var strataprice "Strata level price"
 				label var monthprice "Month level price"
@@ -326,18 +401,18 @@
 		gen imprice = aprice
 			order imprice, after(aprice)
 			
-			foreach v of varlist hhprice clusterprice aimagprice strataprice monthprice itemprice {
+			foreach v of varlist hhprice aimagprice strataprice monthprice itemprice {
 					replace `v'=. if consumed==0
 				}
-			
-				
+
+
 		count if imprice==.
 		count if imprice==. & hhprice!=.
 		replace imprice=hhprice if imprice==. & hhprice!=.
 
-		count if imprice==.
-		count if imprice==. & clusterprice!=.
-		replace imprice=clusterprice if imprice==. & clusterprice!=.
+		* SPREAD-DATA ADAPTATION (2026-07-03): cluster-level imputation step
+		* removed along with clusterprice above -- falls through directly to
+		* aimag level now. See note further up for the scope of this change.
 
 		count if imprice==.
 		count if imprice==. & aimagprice!=.
@@ -363,7 +438,7 @@
 		gen med_aprice = r(p50)
 		replace imprice=med_aprice if imprice==. & item==10210 & consumed==1
 		
-		drop hhprice clusterprice aimagprice strataprice monthprice itemprice med_aprice
+		drop hhprice aimagprice strataprice monthprice itemprice med_aprice
 	
 	
 		rename (qtot qpur qfree qown) (daily_tot_qty daily_qpur daily_qfree daily_qown)
@@ -472,33 +547,47 @@
 		* Imputation  for Outlier
 		***************************
 
-		preserve 
-			use "$data_raw24/consumption", clear 
-			rename identif hses_id
-			rename household_id identif
-			count
-			xtile decile=totex_rpae [aw=hhweight*hhsize], nq(10)
-			keep identif decile
-			save "$data_temp/decile_24", replace
-		restore 
+		* SPREAD-DATA ADAPTATION (2026-07-03), REAL METHODOLOGICAL CHANGE,
+		* not just a rename: input/2024/consumption.dta -- the file this
+		* block reads to build an income-decile variable -- does not exist
+		* at all in the spread release (unlike "cluster", this isn't a
+		* stripped column, the whole file is absent, along with
+		* all_inc_exp.dta and deflators.dta). Without it, "decile" cannot be
+		* built, so it's dropped from the outlier-imputation grouping levels
+		* below (see lev1-lev3) rather than substituted with something else.
+		* Flagging clearly here per instruction, since this is a real loss of
+		* imputation granularity, not cosmetic. Original:
+		*   preserve
+		*   	use "$data_raw/consumption", clear
+		*   	rename identif hses_id
+		*   	rename household_id identif
+		*   	count
+		*   	xtile decile=totex_rpae [aw=hhweight*hhsize], nq(10)
+		*   	keep identif decile
+		*   	save "$data_temp/decile_${survey_year}", replace
+		*   restore
+		*   joinby identif using "$data_temp/decile_${survey_year}", unm(b)
+		*   tab _m
+		*   drop if _m==2
+		*   drop _m
 
-		
-		joinby identif using "$data_temp/decile_24", unm(b)
-		tab _m
-		drop if _m==2
-		drop _m 
-		
-		*** Hemjee ni 3 sigmagaar yalgagdchaad baigaa ugugdliihuu median hemjeegeer orluulga hj bn ***** 
-		*** Uuruur helbel bid 959 utga flag-aar todorhoilogdoj bn timees bid tedniig usgahguigeer median hemjeegeer orluulga hh gej bn 
-		*** clusteriin huwid ch yum uu tuhain ner turliig heregleegui,  esvel 1 , 2 geh met tsuun tohioldol garch irj 
-		*** boloh yum, end ter ilreed bgaa tsuuhun tohioldloor orluulahgui hiilgui  
+		*** Hemjee ni 3 sigmagaar yalgagdchaad baigaa ugugdliihuu median hemjeegeer orluulga hj bn *****
+		*** Uuruur helbel bid 959 utga flag-aar todorhoilogdoj bn timees bid tedniig usgahguigeer median hemjeegeer orluulga hh gej bn
+		*** clusteriin huwid ch yum uu tuhain ner turliig heregleegui,  esvel 1 , 2 geh met tsuun tohioldol garch irj
+		*** boloh yum, end ter ilreed bgaa tsuuhun tohioldloor orluulahgui hiilgui
 		*** 30-aas deesh tohioldoldoor garch irj bgaa bol tuhain utgiig Tuhain tuwshin deer orluulga hiij boloh
-		*** 30 aas baga bol daraagiin tuwshnii utgiig awch tootsno gesen tohiruulgig oruulj bn gesen ug yum.  
+		*** 30 aas baga bol daraagiin tuwshnii utgiig awch tootsno gesen tohiruulgig oruulj bn gesen ug yum.
 		*** n>30 bol suffiecient tuuwer gej uzej bgaa gsn ug yum
 
-		global lev1 "item region urban decile"
-		global lev2 "item urban decile"
-		global lev3 "item decile"
+		* SPREAD-DATA ADAPTATION (2026-07-03): "decile" removed from all
+		* three levels below (was: lev1 "item region urban decile", lev2
+		* "item urban decile", lev3 "item decile"). Side effect worth
+		* knowing: lev3 is now identical to lev4 ("item" alone), so this
+		* cascade is effectively 3 distinct fallback levels instead of 4
+		* until decile is available again.
+		global lev1 "item region urban"
+		global lev2 "item urban"
+		global lev3 "item"
 		global lev4 "item "
 
 		** daily_pc_qpur
@@ -627,7 +716,7 @@
 		
 		
 		sort identif item 
-		save "$data_temp/foodtemp_24", replace 
+		save "$data_temp/foodtemp_${survey_year}", replace 
 
 	
 		
@@ -636,7 +725,7 @@
 *** To Prepare food dataset for Adept
 *************************************
 
-		use "$data_temp/foodtemp_24", clear 
+		use "$data_temp/foodtemp_${survey_year}", clear 
 		
 		* if price (or expenditure) is missing, it means the food item was a residual category reporting only quantities
 		tab out if imprice==., m
@@ -708,9 +797,11 @@
 
 preserve		
 		*** Food consumed outside ******
-		use "$data_raw24/19_foodout", clear
+		use "$data_raw/19_foodout", clear
 			* Hunsnii medeelel bhgui urhiig ustgaw
-			rename hses_id identif			
+			* SPREAD-DATA ADAPTATION (2026-07-03): spread release already
+			* ships "identif" instead of "hses_id".
+			capture rename hses_id identif
 			rename q1307 qtot
 			rename q1308 exp_own
 			rename q1309 exp_gift
@@ -737,11 +828,11 @@ preserve
 			rename (itemcode) (item )
 			order identif item
 			sort identif item daily_exp
-		save "$data_temp/foodout_24", replace 	
+		save "$data_temp/foodout_${survey_year}", replace 	
 
 restore		
 		
-		append using "$data_temp/foodout_24"
+		append using "$data_temp/foodout_${survey_year}"
 
 			label val source source
 			label define source 1 "Ð¥ÑƒÐ´Ð°Ð»Ð´Ð°Ð¶ Ð°Ð²ÑÐ°Ð½" 2 "Ó¨Ó©Ñ€Ð¸Ð¹Ð½ Ð°Ð¶ Ð°Ñ…ÑƒÐ¹Ð³Ð°Ð°Ñ" 3 "Ð‘ÑƒÑÐ´Ð°Ð°Ñ Ò¯Ð½ÑÐ³Ò¯Ð¹ Ð°Ð²ÑÐ°Ð½" 4 "Ð“Ð°Ð´ÑƒÑƒÑ€ Ñ…Ð¾Ð¾Ð»Ð»Ð¾Ð»Ñ‚", modify
@@ -789,7 +880,7 @@ restore
 		order identif item itemname* unit_gr source identif item itemname_mn itemname_en unit_gr source daily_tot_qty daily_qpur daily_qfree daily_qown daily_qty_gr daily_qpur_gr daily_qfree_gr daily_qown_gr daily_exp
 
 		sort identif
-		merge m:1 identif using "$data_raw24/basicvars", keepus(month) nogen
+		merge m:1 identif using "$data_raw/basicvars", keepus(month) nogen
 		
 		keep identif item itemname* unit_gr source daily_qty_gr daily_qpur_gr daily_qfree_gr daily_qown_gr daily_exp month out
 
@@ -814,11 +905,11 @@ restore
 		gen itemAT=item // labelgui bolgoj bn 
 		order itemAT, after(item)		
 	
-		saveold "$data_out/food_2024", version(12) replace
+		saveold "$data_out/food_${survey_year}", version(12) replace
 
 		drop if out==1
 		
-		saveold "$data_out/food_2024_Noout", version(12) replace
+		saveold "$data_out/food_${survey_year}_Noout", version(12) replace
 		
 erase "$data_temp/food13.dta"
 erase "$data_temp/food14.dta"

@@ -23,18 +23,18 @@ clear all
 set more off
 
 **************************** Household *****************************************************************************
-use "$data_raw24/basicvars.dta", clear
-		merge m:1 identif using "$data_temp/equivalence_scales24.dta", nogen keepusing(aesize_fao aesize_oecd1)
+use "$data_raw/basicvars.dta", clear
+		merge m:1 identif using "$data_temp/equivalence_scales${survey_year}.dta", nogen keepusing(aesize_fao aesize_oecd1)
 
 	keep identif cluster newaimag region urban location hhweight hhsize aesize_fao aesize_oecd1 month quarter
 	order identif cluster newaimag region urban hhsize location hhweight aesize_fao aesize_oecd1 month quarter
 
-	gen year=2024
+	gen year=$survey_year
 	sort identif 
 
-	merge 1:1 identif using "$data_temp/temp_hhead_24", nogen
+	merge 1:1 identif using "$data_temp/temp_hhead_${survey_year}", nogen
 	rename identif hses_id
-	merge 1:1 hses_id using "$data_raw24/01_hhold", keepus(visitor ndays) nogen
+	merge 1:1 hses_id using "$data_raw/01_hhold", keepus(visitor ndays) nogen
 	
 	* quick checks 
 		assert  mi(ndays) if visitor==0
@@ -46,7 +46,7 @@ use "$data_raw24/basicvars.dta", clear
 
 	rename  household_id identif
 	sort identif
-	merge 1:1 identif using "$data_raw24/consumption", keepus(totex_rpae fdex_rpae fdex13_rpae pi_v1) nogen
+	merge 1:1 identif using "$data_raw/consumption", keepus(totex_rpae fdex_rpae fdex13_rpae pi_v1) nogen
 	rename identif household_id  
 	rename hses_id identif
 			gen pline_r_pae=16882.01434441
@@ -58,7 +58,7 @@ use "$data_raw24/basicvars.dta", clear
 			label define poor 0 "Non-poor" 1 "Poor" 
 
 	sort identif
-	merge 1:1 identif using "$data_raw24/all_inc_exp", keepus(total_inc money_inc) nogen
+	merge 1:1 identif using "$data_raw/all_inc_exp", keepus(total_inc money_inc) nogen
 		
 	replace totex_rpae=totex_rpae*pi_v1
 	gen hhexpday=(totex_rpae*aesize_oecd1)/(365/12)
@@ -114,4 +114,4 @@ tab urban if fdex_rpae==0
 
 
 sort identif
-saveold "$data_out/household_2024", version(12) replace
+saveold "$data_out/household_${survey_year}", version(12) replace

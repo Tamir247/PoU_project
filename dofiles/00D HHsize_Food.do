@@ -21,13 +21,16 @@
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 * Partaker 
 
-	use "$data_raw24/02_indiv", clear
+	use "$data_raw/02_indiv", clear
 
 		*ed if hses_id== 241000312
 		*ed if identif== 241000312
 		
-		rename hses_id identif
-		joinby identif using "$data_raw24/basicvars", unm(b)
+		* SPREAD-DATA ADAPTATION (2026-07-03): the de-identified "spread"
+		* release already ships "identif" instead of "hses_id" -- guard so
+		* this runs against either source.
+		capture rename hses_id identif
+		joinby identif using "$data_raw/basicvars", unm(b)
 		tab _m
 		drop _m
 		keep if q0113==1
@@ -58,7 +61,7 @@
 	
 	*** Adding visitors
 	rename identif hses_id
-	joinby hses_id using "$data_raw24/01_hhold", unm(b)
+	joinby hses_id using "$data_raw/01_hhold", unm(b)
 	drop _m
 	rename hses_id identif 
 	

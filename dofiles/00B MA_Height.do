@@ -24,12 +24,18 @@
 
 
    *********************** Satter-iin datanii height ashiglaw ********************
-	use "$data_raw24/02_indiv", clear
+	use "$data_raw/02_indiv", clear
+	* SPREAD-DATA ADAPTATION (2026-07-03): the de-identified "spread" release
+	* already ships "identif" instead of "hses_id" -- guard so this runs
+	* against either source. Renamed here (rather than at the original
+	* location, the end of the file) so "identif" can be kept below instead
+	* of "hses_id".
+	capture rename hses_id identif
 	keep if q0113==1
 	rename (q0103 q0105y) (gender age)
-	
-	*keep hses_id ind_id urban region age gender q0102 q0106 hhweight
-	keep hses_id ind_id age gender q0102 q0106 
+
+	*keep identif ind_id urban region age gender q0102 q0106 hhweight
+	keep identif ind_id age gender q0102 q0106
 
 	gen age_class = 0
 	replace age_class = 1 if gender==1 & age <1
@@ -172,6 +178,5 @@
 	joinby age_class using "$dbase/height_Mongolia_2018", unm(b)
 	tab _m
 	drop _merge
-	rename hses_id identif 
 	sort identif ind_id
 	save "$data_out/Height_Sattar", replace 

@@ -70,7 +70,7 @@ set more off
 	
 	
 	preserve
-		use "$data_temp/foodout_24", clear 
+		use "$data_temp/foodout_${survey_year}", clear
 		collapse (mean) source, by(item) 
 		gen desc_mon="Ð“Ð°Ð´ÑƒÑƒÑ€ Ñ…Ð¾Ð¾Ð»Ð»Ð¾Ð»Ñ‚"
 		gen desc="Food away from home"
@@ -113,7 +113,7 @@ set more off
 		order diversity_grpAT, after(diversity_grp)
 		
 		
-saveold "$data_out/Country_nct_2024_with_Foodout.dta", version(12) replace
+saveold "$data_out/Country_nct_${survey_year}_with_Foodout.dta", version(12) replace
 
 * stop removed – legacy recode notes below are kept as reference only
 

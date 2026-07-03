@@ -33,7 +33,7 @@
 	
 	
 	// ЧУХАЛ ТОГТМОЛУУД
-	scalar survey_year = 24
+	global survey_year 2024
 	
 	
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
@@ -53,25 +53,31 @@
 		global checks	    "$base/temp/check"
 		global dofile		"$base/dofiles"  // folder that holds all do-files
 		
-		*global data_raw20	"$dbase/HSES_result_2020"
-		*global data_raw22	"$dbase/HSES_result_2022"
-		global data_raw24	"$dbase/2024"
+		global data_raw	"$dbase/${survey_year}"
 		
 		
 		
 
-* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
 *	1. Set globals
 *
-* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
 
 	** General
-	
-		
 
-* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+	** Indirect DEC / unit-value method (handbook Ch.2, 6-step method, step 5):
+	** grouping variable used to compute median unit values for items that
+	** lack a directly observed quantity (currently: Food-Away-From-Home in
+	** "06 DEC.do"). Must be a variable that exists on basicvars.dta.
+	** For now a single household-level var (region) is used; this can be
+	** changed later (e.g. to newaimag, or a combined region x urban x income
+	** quintile group built upstream) without editing "06 DEC.do" itself.
+	global indirect_grp_var "region"
+
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
 *	2. Run do-files  (2024 analysis – dependency order)
 *
@@ -80,7 +86,7 @@
 	** Step 1: Reference lookup tables (no data dependencies)
 	** Outputs: input/unit_scale.dta, output/process/index.dta
 	di as text ">>> [1/6] Reference tables"
-	quietly do "$dofile/99 Import.do"              // import unit-scale Excel  → input/unit_scale.dta
+	quietly do "$dofile/0 Import Unit.do"              // import unit-scale Excel  → input/unit_scale.dta
 	do "$dofile/00C Price deflation.do"    // monthly CPI & food-CPI   → output/process/index.dta
 
 	** Step 2: Household composition (depends on 01_hhold + 02_indiv)
@@ -105,7 +111,17 @@
 	di as text ">>> [5/6] Individual / Household / NCT"
 	do "$dofile/02 Individual.do"          // demographics, labour market, household-head vars
 	do "$dofile/04 Country_NCT.do"         // national nutrient conversion table
-	do "$dofile/03 Household.do"           // expenditure, income, poverty status
+
+	* SPREAD-DATA ADAPTATION (2026-07-03): "03 Household.do" (expenditure,
+	* income, poverty status) cannot run against the de-identified "spread"
+	* 2024 release -- its three required inputs (input/2024/consumption.dta,
+	* all_inc_exp.dta, deflators.dta) don't exist in that folder at all, and
+	* "cluster"/"household_id" are also stripped from basicvars.dta, which
+	* this file needs. This is the poverty-analysis file, out of scope
+	* regardless (see CLAUDE.md) and its output (household_2024.dta) isn't
+	* consumed by 05 or 06, so disabling it has no effect on the DEC/MDER/PoU
+	* calculation. Re-enable if ever run against the full (non-spread) data:
+	*   do "$dofile/03 Household.do"           // expenditure, income, poverty status
 
 	** Step 6: Dietary energy requirements and consumption (core PoU inputs)
 	** Outputs: Requirement_HHLevel.dta, Requirement_admin.dta, DEC_2024.dta
