@@ -3,9 +3,15 @@ version 14.2
 
 set more off
 
-global data2018 "E:\HSES_result_2018\HSES_2018"
-global workdata "E:\HSES_result_2018\HSES_2018\workdata"
-global worklog "E:\HSES_result_2018\HSES_2018\worklog"
+* PATH REDIRECT (2026-07-03): original hardcoded paths pointed at a machine
+* that no longer exists; redirected to this project's actual 2018 data/temp
+* folders. Original:
+*   global data2018 "E:\HSES_result_2018\HSES_2018"
+*   global workdata "E:\HSES_result_2018\HSES_2018\workdata"
+*   global worklog "E:\HSES_result_2018\HSES_2018\worklog"
+global data2018 "C:\Users\Admin\Desktop\PoU\input\2018"
+global workdata "C:\Users\Admin\Desktop\PoU\temp\2018work"
+global worklog "C:\Users\Admin\Desktop\PoU\temp\2018log"
 
 cd $workdata
 
@@ -22,7 +28,9 @@ log using "$worklog/setup_food.log", replace
 * I. From HSES urban  
 ******************************************************************
 use "$data2018/16_urb_diary", clear
-rename hses_id identif
+* PATH REDIRECT (2026-07-03): this 2018 data release already ships "identif"
+* instead of "hses_id" -- guarded so this runs regardless.
+capture rename hses_id identif
 keep identif item q120* 
 renpfix q120 q
 
@@ -86,7 +94,9 @@ save tempfood1, replace
 ******************************************************************
 use "$data2018/17_rur_food_7d", clear
 
-rename hses_id identif
+* PATH REDIRECT (2026-07-03): this 2018 data release already ships "identif"
+* instead of "hses_id" -- guarded so this runs regardless.
+capture rename hses_id identif
 keep identif item q130*
 renpfix q130 q
 rename item itemcode

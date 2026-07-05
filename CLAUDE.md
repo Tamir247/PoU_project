@@ -37,12 +37,16 @@ handbook Ch.2 "Unit of Measurement" + Annex 2A's worked conversion example.
 values — still an open, unverified lead if calorie totals ever look off again.
 
 ### 2. `00C Price deflation.do`
-Hardcodes 24 monthly CPI/FCPI values (from NSO) and builds `def_cpi`/`def_fcpi`
-deflators (`month index / annual mean index`). Verified independently against
-real data — formula and application both match the handbook exactly (Ch.2
-"Adjustment to Account for Temporal Variability of Prices," p.31, Annex 2D).
-**Caveat:** all 24 numbers are hand-typed; must be manually updated each survey
-year, no automated source link (just a URL in a comment).
+Builds `def_cpi`/`def_fcpi` deflators (`month index / annual mean index`).
+Verified independently against real data — formula and application both match
+the handbook exactly (Ch.2 "Adjustment to Account for Temporal Variability of
+Prices," p.31, Annex 2D). **Updated 2026-07 (by the user, not Claude):** now
+imports `$data_raw\CPI, FCPI.xlsx` (i.e. a per-survey-year file living in
+`input/${survey_year}/`) instead of the original hardcoded 24 monthly values —
+removes the old "hand-typed, no automated source" caveat, but means each new
+survey year's input folder must include its own `CPI, FCPI.xlsx` (year, month,
+cpi, fcpi columns) or this file will fail immediately. Source: NSO
+(https://www.1212.mn, Consumer Price Index table).
 
 ### 3. `00A Equivalence scales.do`
 Builds survey date → individual age → adult/child + age-sex brackets → two
@@ -145,6 +149,18 @@ directly (not used further in this Stata pipeline).
   population group — it's achieved via ADePT-FSM's generic "Population group
   1-5" user-definable slots (confirmed via `HH data.xlsx`'s `ExtraInfo` sheet:
   `FSSM_VAR1 = poorlNSO`, `CHMLBL1 = "Poverty"`).
+- **Origin of `consumption.dta`/`all_inc_exp.dta`** (external inputs, not
+  built anywhere in this repo): their embedded Stata characteristics are
+  strong evidence they're **official NSO poverty/welfare working files**, not
+  a generic download — `consumption.dta` carries `_dta[_svy_*]` characteristics
+  (only created by `svyset` with `pweight`/`cluster`/`strata`), weight-raking
+  characteristics (`hhweight[objfcn]`, `[converged]`, etc.), and `reshape`
+  bookkeeping (`_dta[ReS_i]`/`ReS_j`) showing it was built from raw item-level
+  HSES data reshaped into COICOP-style categories; `all_inc_exp.dta`'s reshape
+  metadata (`_dta[ReS_i]: hses_id day item`) ties directly to the raw
+  questionnaire's own `q1307`/`q1308` fields. Same pattern (external,
+  never-constructed `consumption`/`all_inc_exp` files) recurs in the 2018
+  legacy scripts too — consistent with a recurring, per-round NSO product.
 - **Architecture note:** mixes expenditure, income, and poverty concerns in
   one file — candidate for separation, but out of scope to touch given the
   poverty restriction.
@@ -176,6 +192,124 @@ but not exhaustively audited):
 - Large item-level divergences between Atwater-derived `kcal` and tabulated
   `fd_kcal`/`calories` (up to ±300 kcal/100g for some items) — worth checking
   the source NCT Excel for transcription errors if DEC ever looks off again.
+
+## Data variants in `input/`: full vs. spread vs. 2018
+
+`input/` now holds multiple data releases sharing the same do-files where
+possible. **Check what `input/${survey_year}/` actually points at before
+assuming the pipeline will "just work"** — the active `00`-`06` files were
+adapted for **2024 spread data specifically**; running them against `2024
+full` needs no changes (spread is a subset), but running them against `2018`
+does not work at all (see below) without deep rework.
+
+- **`input/2024 full/`** — the complete, detailed 2024 release (has `cluster`,
+  `household_id`, `interviewer`, `consumption.dta`, `all_inc_exp.dta`,
+  `deflators.dta`, `q0104y/m/d` birthdates, `q0423a`, diary `visitor13`/
+  `ndays13` etc.). This is what the pipeline was originally built and verified
+  against (`PC_tot_cal` ≈ 2,068.8 kcal/person/day).
+- **`input/2024/`** — the de-identified "**spread**" release: same survey,
+  same question numbering, but several columns stripped for
+  disclosure-avoidance, and `hses_id` already renamed to `identif` throughout.
+  Missing vs. full: `cluster`, `household_id`, `newsoum`, `bag`,
+  `interviewer`, `supervisor`, several `hhweight_*` variants (from
+  `basicvars.dta`); `q0104y/q0104m/q0104d` (birthdate) and `q0423a` (open-text
+  occupation) from `02_indiv.dta`; `visitor13`/`ndays13` (urban),
+  `visitor14`/`ndays14`/`price` (rural) from the diary files; and **the entire
+  `consumption.dta`/`all_inc_exp.dta`/`deflators.dta` files don't exist at
+  all**. All active do-files were adapted to run against this (see per-file
+  notes above, all marked "SPREAD-DATA ADAPTATION (2026-07-03)" in the code).
+  Result after adaptation: `PC_tot_cal` ≈ 2,068.3 kcal/person/day — within
+  0.02% of the full-data run, despite real methodology losses (below).
+  **Real, non-cosmetic losses from adapting to spread data** (flagged in code
+  comments, not silently absorbed):
+  - `01 Food.do`'s price-imputation cascade lost its **cluster-level rung**
+    (household → ~~cluster~~ → aimag/strata/month → national). Per
+    `ref/foodsetup.do`'s own historical note, cluster supplied ~52.8% of all
+    imputed prices — the single most-used rung. Now falls straight to aimag.
+  - The outlier-imputation grouping (`$lev1-3` in `01 Food.do`) lost the
+    **income-decile** dimension entirely, since building it required
+    `consumption.dta` (absent). Cascade is effectively 3 levels instead of 4
+    (region/urban/item → urban/item → item, with the last two now identical).
+  - `03 Household.do` (poverty) is **entirely disabled** in `00 Master.do` —
+    its 3 required inputs don't exist in the spread folder at all. Confirmed
+    harmless to DEC/MDER/PoU (not consumed by `05`/`06`), and out of scope
+    anyway (see the poverty caveat above).
+  - One genuine data anomaly surfaced (not a structural issue): a
+    `consumed==1`-but-zero-quantity mutton record under a re-numbered
+    household ID, resolved generically (deferring to the zero-quantity
+    evidence) since the cluster-peer context the original hardcoded fix used
+    isn't reconstructable without `cluster`.
+- **`input/2018/`** — real 2018 HSES raw data (renamed from downloaded
+  filenames like `01_hhold (9).dta` → `01_hhold.dta`, etc.). **Structurally
+  different from 2024, not just missing columns** — a different survey design
+  entirely (see "Legacy 2018 pipeline" below). The active `00`-`06` files do
+  **not** work against this and were deliberately **not** adapted for it (a
+  scoped decision — see below). Do not point `$data_raw`/`survey_year` at
+  `2018` and run `00 Master.do` expecting it to work.
+
+## Legacy 2018 pipeline (validation exercise, not part of the active pipeline)
+
+Used to sanity-check the current methodology against ADePT-FSM's actual 2018
+output (`HH data.xlsx`: DEC=2,461, MDER=1,848, ADER=2,348 kcal/person/day).
+
+**Why 2018 needs different code, not just different data:** 2018's food diary
+used a fundamentally different collection design — **three 10-day "tenths"
+per month** (`q1201_x`/`q1202_x`/`q1203_x` in `16_urb_diary.dta`), not 2024's
+single 7-day diary. `02_indiv.dta` also has no `q0113` at all (the field every
+active do-file uses via `keep if q0113==1`), and `01_hhold.dta` has 4 visit
+records instead of 3. This is why the "spread-data" adaptation approach
+(rename/guard missing columns) doesn't apply here — the shape of the data
+itself differs, not just which columns are present.
+
+**Files evaluated, not all used:** the repo has 5+ overlapping legacy 2018
+MDER/DEC scripts by two different authors (`sattar_2018.do`,
+`Original_PoU_estmation_do.do`, `Revised2_PoU_estmation_do.do`,
+`Revised_PoU_estmation_2018_Sattar.do` in both `dofiles/` root and
+`dofiles/ref/` — the two same-named files differ in content), all with
+hardcoded paths to machines that no longer exist (`E:\HSES_result_2018\...`,
+`D:\18.FAO\Adept\...`, `C:\Users\Sattar\OneDrive\...`). Unclear whether any of
+them compute a final MDER/DEC/PoU number in Stata or just prepare files for
+ADePT itself to finish. **Decision made: don't try to get these running** —
+too fragile, uncertain payoff. `10_GDP_Add.do` is a separate income/GDP
+diagnostic tool spanning 2018-2025, not part of the PoU pipeline at all.
+
+**What was actually done:** only `dofiles/ref/foodsetup.do` was adapted (it's
+the food-diary *cleaning* script — parsing, price/quantity outlier flagging,
+and a price-imputation cascade structurally identical to `01 Food.do`'s).
+Two fixes: redirected its 3 hardcoded path globals (`data2018`/`workdata`/
+`worklog`) to `input/2018`, `temp/2018work`, `temp/2018log`; guarded its
+`rename hses_id identif` (2018 data already ships `identif`). Ran clean.
+One data-quality catch: its own code left `*drop if flagQ==1` (quantity
+outliers) commented out despite its own documentation saying it should be
+dropped — enabling it fixed a wildly inflated mean (one household otherwise
+hit 580,000+ kcal/person/day).
+
+Its output (`temp/2018work/tempfood.dta`: cleaned daily quantities in
+*original survey units*, not grams, keyed by `identif`/`itemcode`/`tenth`)
+was then fed through **this project's own, already-verified DEC logic**
+(ad hoc scratchpad scripts, not saved in `dofiles/` — reused
+`input/unit_scale.dta` and `output/process/Country_nct_2024_with_Foodout.dta`
+directly, after confirming 2018 and 2024 share the same item-code scheme and
+near-identical gram-conversion factors via `input/Unit_scale.xlsx`'s "units"
+sheet, which has both years' figures side by side — only one item, Pizza/
+10114, differs, and it's excluded from calorie calc as an "out" category in
+both years anyway).
+
+**Result: our computed DEC ≈ 2,341-2,385 kcal/person/day vs. ADePT's 2,461**
+(~3-5% gap). Expected direction and magnitude given what was deliberately
+left out of this scoped exercise: food-away-from-home wasn't processed at
+all (would add calories back, per the 2024 FATH fix precedent), no full
+price-imputation cascade or Procedure-2 indirect-method calories for
+zero-quantity items (both would add, not subtract), and raw `hhsize` instead
+of a partaker-adjusted size. Landing within 5%, in the expected direction, is
+a good independent sanity check that the core Atwater-formula/unit-conversion
+methodology in this codebase is sound.
+
+**Note:** `00 Master.do`'s `survey_year` may currently be left at `2018` from
+this exercise — that does **not** mean `00 Master.do` works against 2018 data;
+none of the numbered `00`-`06` files were adapted for it. The 2018 result above
+came entirely from the standalone `foodsetup.do` + scratchpad route, never
+through `00 Master.do`.
 
 ## Known architecture debt (not urgent, don't refactor mid-audit)
 

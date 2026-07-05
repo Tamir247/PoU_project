@@ -44,9 +44,6 @@
 	
 			
 		global dbase "$base/input"
-		
-	** Paths
-		*global data_in		"$base/data/data_in"
 		global data_out		"$base/output/process"
 		global data_temp    "$base/temp/analysis"
 		global output		"$base/output/analysis"

@@ -30,23 +30,29 @@
 		* release already ships "identif" instead of "hses_id" -- guard so
 		* this runs against either source.
 		capture rename hses_id identif
-		joinby identif using "$data_raw/basicvars", unm(b)
-		tab _m
-		drop _m
+		merge m:1 identif using "$data_raw/basicvars"
+			drop _m
+			
+			
 		keep if q0113==1
 		
-		bysort identif: generate hh_size=_N
+		bysort identif: gen hh_size=_N
 
 		***deducting household members who were not present at home during 7 and 30 days 	
 		gen abs_mem=(q0112a!=. &  (q0112a==30 | q0112a>30))
 		tab1 abs_mem*
-		recode abs_mem (0=1) (1=0), gen(abs_mem2)
-		egen hhsize_food=sum(abs_mem2), by(identif) 
-		compare hhsize hh_size
-		compare hhsize hhsize_food
+
+		bysort identif: gen hhsize_food = _N - sum(abs_mem) // Хоол иддэг хүмүүсийн тоо
+		
+		
+			compare hhsize hh_size
+			compare hhsize hhsize_food
+			tab hhsize hhsize_food
+			
 		drop hh_size abs_mem
 		
-		replace hhsize_food=hhsize if hhsize_food==0
+		replace hhsize_food=hhsize if hhsize_food==0 // 0 байж болохгүй. 
+		
 		
 		
 	collapse (first) hhsize_food hhsize, by(identif)
