@@ -43,7 +43,9 @@ set more off
 		* used by "03 Household.do" (poverty file, itself unable to run
 		* against spread data -- see 00 Master.do), so this has no
 		* consequence for the active pipeline here.
-		merge m:1 identif using "$data_raw/basicvars", keepus(urban region newaimag location strata hhweight hhsize month) nogen
+		* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars" to
+		* "01_Import_BasicVars.do"'s passthrough output -- same columns.
+		merge m:1 identif using "$data_temp/basicvars_${survey_year}", keepus(urban region newaimag location strata hhweight hhsize month) nogen
 				
 		*********************************
 		* identifying the household head
@@ -564,7 +566,12 @@ set more off
 		keep identif ind_id hm_relation hm_sex  hm_age hm_marital hm_eact hm_occupa hm_educa hm_nochild0_17 hm_nochild0_5 
 		order identif ind_id hm_relation hm_sex  hm_age hm_marital hm_eact hm_occupa hm_educa hm_nochild0_17 hm_nochild0_5  
 		sort identif ind_id
-		merge 1:1 identif ind_id using "$data_out/Height_Sattar", keepus(age_class height) nogen
+		* PIPELINE REORG (2026-07-05): "Height_Sattar.dta" (built by the old
+		* "00B MA_Height.do") is now "AgeClassReference_${survey_year}.dta"
+		* (built by "04_Import_AgeClassReference.do", which also attaches
+		* BMI/PAL/SD reference columns this file doesn't ask for -- keepus()
+		* below is unchanged, so this file's exported column set is identical).
+		merge 1:1 identif ind_id using "$data_out/AgeClassReference_${survey_year}", keepus(age_class height) nogen
 
 		label var age_class "Age group by gender "
 		label var height "Height for age group&gender"

@@ -51,7 +51,9 @@ use "$data_out/food_${survey_year}_Noout",clear
 		drop a
 		
 	merge m:1 identif using "$data_temp/HH_size_food", nogen
-			merge m:1 identif using "$data_raw/basicvars", keepus(hhweight $indirect_grp_var) nogen
+			* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars"
+			* to "01_Import_BasicVars.do"'s passthrough output -- same columns.
+			merge m:1 identif using "$data_temp/basicvars_${survey_year}", keepus(hhweight $indirect_grp_var) nogen
 
 **** converting exp. and quantities into per capita per day at each food item level**
 	gen daily_pc_qty_gr=daily_qty_gr/hhsize_food  // fix: after collapse the var is daily_qty_gr

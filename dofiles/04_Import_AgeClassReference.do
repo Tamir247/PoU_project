@@ -1,6 +1,6 @@
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* PROGRAM:			MDER & ADER
+* PROGRAM:			Age-class reference table (height, BMI/PAL, SD-for-height)
 *
 * PROJECT:			Food Analysis
 *
@@ -8,14 +8,47 @@
 *
 * DATE: 			Jan 2026
 *
-* DESCRIPTION:  	Prepare "HEIGHT" dataset for ADePT
-
+* DESCRIPTION:  	Build "age_class" and attach every age/gender-keyed
+*					reference table used later for MDER/ADER/XDER, in one
+*					place -- see "PIPELINE REORG" note below.
 *
 * SIMPLE PIPELINE:
 *   1) Prepare individual roster for members only.
 *   2) Build age-sex classes used by FAO requirement formulas.
-*   3) Attach/prepare height references by class.
-*   4) Save height-ready individual file for DER estimation.
+*   3) Attach height, BMI/PAL/weight-gain, and SD-for-height references,
+*      all keyed off age_class (or gender+height).
+*   4) Save one reference file for "10_Calc_DietaryEnergyRequirement.do" and
+*      "08_Build_IndividualRoster.do" to merge from.
+*
+* PIPELINE REORG (2026-07-05): this file used to attach only height (hence
+* the old name "00B MA_Height.do" and old output "Height_Sattar.dta"). It now
+* also attaches the "reference_values" (BMI/PAL/weight-gain constants) and
+* "sd_value_0to2"/"sd_value_2to5" (WHO growth-standard SD-for-height, ages
+* 0-5) tables that used to be joined directly inside "05 MDER_ADER_XDER.do"
+* (now "10_Calc_DietaryEnergyRequirement.do") -- i.e. a calculation file
+* reaching into raw "input/" data. reference_values (keyed by age_class alone)
+* moves over with no behavior change, verified bit-identical against the old
+* code's output.
+*
+* BUG FIX (2026-07-05): the sd_value_0to2/sd_value_2to5 attachment is NOT just
+* relocated -- moving it surfaced a real pre-existing bug in "05", now fixed.
+* Old "05" did "rename hm_sex gender" then joined on "gender height", but
+* hm_sex (built in "02 Individual.do") is coded 0=Female/1=Male while
+* sd_value_0to2.dta/sd_value_2to5.dta use the HSES-native 1=Male/2=Female
+* coding (confirmed: every other file in the pipeline that touches q0103
+* keeps this native coding -- hm_sex's 0/1 recode is a one-off local to that
+* file's own ADePT export column, not a project-wide convention). Boys
+* happened to match anyway (hm_sex==1 coincides with gender==1=Male in both
+* codings), but EVERY girl aged 0-5 matched nothing, silently forcing her
+* wh_xder (and therefore XDER) to missing rather than falling back to the
+* BMI-based formula -- verified via Stata: all 2,350 girls aged 0-5 in the
+* 2024 sample were affected. This file builds "gender" straight from raw
+* q0103 (see "rename (q0103 q0105y) (gender age)" below) and never recodes
+* it, so it already uses the correct/native coding -- no rename-to-hm_sex
+* detour, so no mismatch. "10_Calc_DietaryEnergyRequirement.do" now gets
+* sd_0to2/SD_2to5 pre-resolved from here instead of re-joining them itself,
+* so this fix applies automatically once that file stops doing its own
+* (buggy) join -- see the fix note there.
 *
 
 
@@ -128,6 +161,49 @@
 	merge m:1 age_class using "$data_raw/height_Mongolia_2018"
 		tab _m
 		drop _merge
-		
+
+	*** BMI / PAL / weight-gain reference constants, keyed by age_class alone
+	*** (moved from old "05 MDER_ADER_XDER.do" -- see PIPELINE REORG note above)
+	count
+	local n_before = r(N)
+	joinby age_class using "$dbase/reference_values", unm(b)
+		tab _merge
+		drop if _merge==2
+		drop _merge
+	count
+	assert r(N)==`n_before' // guards against a future data refresh silently gaining a duplicate age_class in reference_values.dta and fanning out rows via joinby
+
+	*** WHO growth-standard SD-for-height (ages 0-5), keyed by gender + height
+	*** rounded to the nearest whole cm. Uses a separate "height_rounded" var
+	*** (via a rename-shuffle -- joinby needs matching column names on both
+	*** sides) so the real "height" column, used elsewhere (e.g. merged into
+	*** "08_Build_IndividualRoster.do"), is never altered by the rounding --
+	*** only sd_0to2/SD_2to5 depend on the rounded value. height_rounded is
+	*** kept (not dropped) in the saved file so a future reader can see
+	*** exactly what height value produced a given sd_0to2/SD_2to5 without
+	*** re-deriving it.
+	gen height_rounded = int(round(height,1))
+	rename height height_orig
+	rename height_rounded height
+
+	count
+	local n_before = r(N)
+	joinby gender height using "$dbase/sd_value_0to2", unm(b)
+		drop if _m==2
+		drop _merge
+	count
+	assert r(N)==`n_before' // guards against a future duplicate gender+height row in sd_value_0to2.dta
+
+	count
+	local n_before = r(N)
+	joinby gender height using "$dbase/sd_value_2to5", unm(b)
+		drop if _m==2
+		drop _merge
+	count
+	assert r(N)==`n_before' // guards against a future duplicate gender+height row in sd_value_2to5.dta
+
+	rename height height_rounded
+	rename height_orig height
+
 	sort identif ind_id
-	save "$data_out/Height_Sattar", replace 
+	save "$data_out/AgeClassReference_${survey_year}", replace

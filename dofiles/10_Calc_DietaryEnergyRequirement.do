@@ -12,11 +12,40 @@
 
 *
 * SIMPLE PIPELINE:
-*   1) Merge individual roster with reference BMI/PAL tables.
+*   1) Load individual roster + pre-resolved BMI/PAL/SD reference columns.
 *   2) Compute body weight proxies and requirement inputs.
 *   3) Estimate MDER, ADER, and XDER per individual and household.
 *   4) Aggregate to admin levels and save requirement outputs.
 *
+* PIPELINE REORG (2026-07-05): this file used to reach directly into raw
+* "input/" data for its BMI/PAL/weight-gain constants (joinby age_class using
+* "$dbase/reference_values") and its WHO SD-for-height values (joinby gender
+* height using "$dbase/sd_value_0to2"/"sd_value_2to5") -- a calculation file
+* touching raw input directly. Those are now resolved once in
+* "04_Import_AgeClassReference.do" and merged in below from its output
+* instead; this file no longer touches "$dbase"/"$data_raw" for anything
+* except the one "basicvars" merge (also repointed, see below, to the
+* "01_Import_BasicVars.do" passthrough).
+*
+* BUG FIX (2026-07-05) folded in here: the old gender+height join used
+* "rename hm_sex gender" before joining -- but hm_sex (0=Female/1=Male, from
+* "02 Individual.do") doesn't match sd_value_0to2/sd_value_2to5's native
+* 1=Male/2=Female coding. Boys matched by coincidence (hm_sex==1 lines up
+* with gender==1=Male in both codings); every girl aged 0-5 matched nothing,
+* silently forcing her wh_xder (and XDER) to missing. Verified: 2,350 girls
+* aged 0-5 in the 2024 sample were affected. "04_Import_AgeClassReference.do"
+* resolves sd_0to2/SD_2to5 using the roster's own native-coded "gender"
+* (built straight from q0103, never recoded), so this is fixed simply by no
+* longer re-deriving these columns here from hm_sex.
+*
+* BUG FIX (2026-07-06), see the comment at "generate wh_mder=..." below for
+* full detail: the old code rounded "height" to the nearest whole cm in
+* place, which leaked into wh_mder/wh_ader/wh_xder for every age class, not
+* just the SD-for-height lookup that rounding was meant for. Handbook Ch.2
+* Annex 2F specifies this formula using unrounded "median height" -- fixed
+* by keeping height unrounded here (a side effect of "04"'s ADePT-export-
+* safe design, not something separately hunted for). Small (<1% per
+* household) but universal effect -- see detail below.
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 * The MDER & ADER can be estimated using:
@@ -44,15 +73,28 @@ Emegtei humuusiin huwid jiremsehiig ni awch harin sudalgaand medeelel sugluulssa
 use "$data_out/indivdual_${survey_year}", clear
 keep identif ind_id hm_sex hm_age age_class height
 
+* PIPELINE REORG (2026-07-05): pulls BMI/PAL/weight-gain constants and
+* WHO SD-for-height values from "04_Import_AgeClassReference.do" instead of
+* joining "reference_values"/"sd_value_0to2"/"sd_value_2to5" directly here
+* (see header note). Same columns this file used to compute for itself.
+merge 1:1 identif ind_id using "$data_out/AgeClassReference_${survey_year}", keepus(bmi_mder bmi_ader bmi_xder wg_mder wg_ader wg_xder pal_mder pal_ader pal_xder en_pwg sd_0to2 SD_2to5) nogen
+
 tab age_class hm_sex
 
-************************ 
+************************
 *** Constant numbers
-************************ 
+************************
+		* PIPELINE REORG (2026-07-05): promoted from bare literals to globals
+		* (set in "00 Master.do") -- same values, matches the "survey_year"
+		* precedent so a future survey year has one obvious place to update
+		* these rather than hunting for a hardcoded number in this file.
+		* Original:
+		*   gen u5mr=15.0
+		*   gen cbr=0.0169
 		* in 2024, Under 5 mortality rate 15 -- https://www.1212.mn/mn/statcate/table-view/Education,%20health/Births%2C%20deaths/DT_NSO_2100_041V3.px
-		gen u5mr=15.0
+		gen u5mr=${u5mr}
 		*in 2024, Crude Birth ratio (CBR) - 16.9 https://www.1212.mn/mn/statcate/table-view/Education,%20health/Births%2C%20deaths/DT_NSO_0300_029V1.px
-		gen cbr=0.0169 
+		gen cbr=${cbr}
 		* PAL-Physical Activity Level - (PAL)-g tootsdog FAO-oos gargasan 1.55, 2.01, 1.85 coefficient
 /*
 *******  Edgeer medeellig ahisglan Physical activity level-iig toosdog -PAL 
@@ -80,25 +122,29 @@ XDEr-iin huwid 2.1 gdg ni 85% nemelt energy zartsuulna gesen utga
 ********* BMI_ADER:23.1=w/(h*h) >> w=23.1*(h*h)
 ********* BMI_XDER:25=w/(h*h)  >> w=25*(h*h)
 
-****join reference values of BMI, PAL and SD values for children 
-joinby age_class using "$dbase/reference_values", unm(b)
-drop _merge 
-
-replace height=int(round(height,1))
-rename hm_sex gender
-joinby gender height using "$dbase/sd_value_0to2", unm(b)
-drop if _m==2
-drop _merge
-
-joinby gender height using "$dbase/sd_value_2to5", unm(b)
-drop if _m==2
-drop _merge
-
-rename gender hm_sex 
-
+**** reference values for BMI, PAL, and SD-for-height were joined here before
+**** the 2026-07-05 reorg -- see header note above. Now come pre-attached
+**** from "04_Import_AgeClassReference.do" via the merge near the top of
+**** this file.
 
 *** hieght data deer "cm" -eer bgaa uchir 100-d huwaaj ugsun bn
-*** Calculate weight(Ð¥Ò¯Ð½Ð¸Ð¹ Ð¶Ð¸Ð½) for height 
+*** Calculate weight(Ð¥Ò¯Ð½Ð¸Ð¹ Ð¶Ð¸Ð½) for height
+* BUG FIX (2026-07-06): before the reorg, this file rounded "height" to the
+* nearest whole cm in-place (for the sd_value_0to2/sd_value_2to5 lookup, see
+* header note) BEFORE this point -- so wh_mder/wh_ader/wh_xder for every
+* age class, not just the SD lookup, were silently computed from rounded
+* height. Handbook Ch.2 Annex 2F defines this formula ("KG" in the handbook)
+* as BMI x (median height/100)^2 with no rounding instruction -- the only
+* rounding-relevant reference in the chapter (footnote 17, WHO BMI-for-age
+* growth standards) is specifically about the child SD-for-height tables,
+* not this general formula. "04_Import_AgeClassReference.do" now keeps
+* "height" unrounded for this reason (rounding only for the SD lookup, via
+* a separate "height_rounded" var), so this formula uses the true reference
+* height, matching the handbook. Effect: small (verified: household-level
+* MDER/ADER/XDER shift by well under 1% for every household in the 2024
+* sample -- e.g. one age class's MDER moved by ~6.8 kcal on a ~1,570 kcal
+* base) but universal, since almost every household has members outside
+* the 0-5 age range this didn't already apply to.
 generate wh_mder=bmi_mder*(height/100)*(height/100)
 generate wh_ader=bmi_ader*(height/100)*(height/100)
 generate wh_xder=bmi_xder*(height/100)*(height/100)
@@ -219,7 +265,11 @@ preserve
 	save "$data_out/Requirement_HHLevel", replace 
 restore 
 
-merge m:1 identif using "$data_raw/basicvars", keepus(urban region hhweight hhsize) nogen
+* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars" to
+* "01_Import_BasicVars.do"'s passthrough output -- same columns. This is now
+* the only external merge in this file (besides the AgeClassReference merge
+* near the top), and neither touches "$dbase"/"$data_raw" raw input paths.
+merge m:1 identif using "$data_temp/basicvars_${survey_year}", keepus(urban region hhweight hhsize) nogen
 
 /*
 Umnu huwi hunii tushind MDER ADER XDER yamar bgaag deer todorhoilj harsan harin odoo us, bus nutgiin tuwshind yamar bhiig todorhoilii

@@ -30,7 +30,11 @@
 		* release already ships "identif" instead of "hses_id" -- guard so
 		* this runs against either source.
 		capture rename hses_id identif
-		merge m:1 identif using "$data_raw/basicvars"
+		* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars"
+		* (raw input) to "01_Import_BasicVars.do"'s passthrough output -- see
+		* that file's header comment. No keepusing() list here to begin with
+		* (this merge already pulled every column), so nothing else changes.
+		merge m:1 identif using "$data_temp/basicvars_${survey_year}"
 			drop _m
 			
 			
@@ -38,12 +42,23 @@
 		
 		bysort identif: gen hh_size=_N
 
-		***deducting household members who were not present at home during 7 and 30 days 	
+		***deducting household members who were not present at home during 7 and 30 days
 		gen abs_mem=(q0112a!=. &  (q0112a==30 | q0112a>30))
 		tab1 abs_mem*
 
-		bysort identif: gen hhsize_food = _N - sum(abs_mem) // Хоол иддэг хүмүүсийн тоо
-		
+		* BUG FIX (2026-07-05): this used to be
+		*   bysort identif: gen hhsize_food = _N - sum(abs_mem)
+		* Stata's sum() is a CUMULATIVE running total within the bysort group
+		* (varies row to row: person 1 gets _N minus just their own abs_mem,
+		* person 2 gets _N minus the first two people's abs_mem combined,
+		* etc.) -- not the household's total absent count. Since the line
+		* below keeps only the first row per household ("collapse (first)"),
+		* every household ended up with an arbitrary partial-sum value instead
+		* of the true "hhsize minus total absent" count. Verified in Stata:
+		* 1,948 of 51,471 individual rows (3.8%) got a different hhsize_food
+		* under the old (broken) logic vs. the corrected total below.
+		bysort identif: egen hhsize_food = total(1 - abs_mem) // Хоол иддэг хүмүүсийн тоо
+
 		
 			compare hhsize hh_size
 			compare hhsize hhsize_food

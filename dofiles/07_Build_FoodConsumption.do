@@ -180,7 +180,9 @@
 		* Only used below for a diagnostic `table` breakdown (not for the
 		* actual SALT fix itself, which is based on qty/qty_p thresholds),
 		* so this is a display-only loss, not a calculation change.
-		merge m:1 identif using "$data_raw/basicvars.dta", keepus(newaimag) nogen
+		* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars.dta"
+		* to "01_Import_BasicVars.do"'s passthrough output -- same columns.
+		merge m:1 identif using "$data_temp/basicvars_${survey_year}.dta", keepus(newaimag) nogen
 		merge m:1 identif using "$data_temp/equivalence_scales${survey_year}.dta", nogen keepusing(aesize_fao)
 
 		
@@ -284,10 +286,12 @@
 		** Merge basic vars
 		* SPREAD-DATA ADAPTATION (2026-07-03): "cluster", "newsoum", "bag"
 		* don't exist in the spread release's basicvars.dta -- dropped from
-		* this merge's keepusing() list. See "01 Food.do" cluster-level price
+		* this merge's keepusing() list. See this file's cluster-level price
 		* imputation note further below for the one place this actually
 		* matters for a calculation.
-		merge m:1 identif using "$data_raw/basicvars.dta", keepus(urban region location strata newaimag hhsize hhweight month quarter) nogen
+		* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars.dta"
+		* to "01_Import_BasicVars.do"'s passthrough output -- same columns.
+		merge m:1 identif using "$data_temp/basicvars_${survey_year}.dta", keepus(urban region location strata newaimag hhsize hhweight month quarter) nogen
 
 		order urban region location strata newaimag hhsize hhweight month quarter, before(identif)
 		order survey perday hhsize aesize_fao hhweight month quarter out, last
@@ -880,7 +884,9 @@ restore
 		order identif item itemname* unit_gr source identif item itemname_mn itemname_en unit_gr source daily_tot_qty daily_qpur daily_qfree daily_qown daily_qty_gr daily_qpur_gr daily_qfree_gr daily_qown_gr daily_exp
 
 		sort identif
-		merge m:1 identif using "$data_raw/basicvars", keepus(month) nogen
+		* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars" to
+		* "01_Import_BasicVars.do"'s passthrough output -- same columns.
+		merge m:1 identif using "$data_temp/basicvars_${survey_year}", keepus(month) nogen
 		
 		keep identif item itemname* unit_gr source daily_qty_gr daily_qpur_gr daily_qfree_gr daily_qown_gr daily_exp month out
 

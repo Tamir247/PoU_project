@@ -34,7 +34,11 @@
 	* "identif" -- guard the rename so this file runs unmodified against
 	* either source instead of erroring on a missing "hses_id".
 	capture rename hses_id identif
-		merge 1:1 identif using "$data_raw/basicvars.dta", keepusing(month hhsize) nogen
+		* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars.dta"
+		* (raw input) to "01_Import_BasicVars.do"'s passthrough output -- see
+		* that file's header comment. Same columns (keepusing list unchanged),
+		* no logic change.
+		merge 1:1 identif using "$data_temp/basicvars_${survey_year}.dta", keepusing(month hhsize) nogen
 		sort identif
 		
 	** Clean interview dates
