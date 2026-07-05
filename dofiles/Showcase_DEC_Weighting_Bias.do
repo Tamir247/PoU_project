@@ -24,6 +24,8 @@ set more off
 global base "C:\Users\Admin\Desktop\PoU"
 
 use "$base/output/process/DEC_2024", clear
+merge 1:1 identif using "$base/output/process/Requirement_HHLevel", keepusing(MDER) nogen
+gen mder_pc = MDER/hhsize_food
 di "N households = " _N
 
 di as result "===================================================================="
@@ -88,3 +90,46 @@ di ""
 di as text "The population-weighted margin is much thinner -- this is the"
 di as text "number that should drive any PoU discussion, since PoU is a"
 di as text "population-level (not household-level) prevalence statistic."
+
+di as result "===================================================================="
+di as result "4) DOES HOUSEHOLD SIZE ACTUALLY CROSS THE LINE? DEC vs. EACH"
+di as result "   BUCKET'S OWN PER-CAPITA MDER (not just the national average)"
+di as result "===================================================================="
+di as text "Larger households often have a different age/sex mix (more children,"
+di as text "for instance), so their MINIMUM requirement per person isn't the same"
+di as text "flat 1,786.6 either -- this compares each bucket's DEC against ITS OWN"
+di as text "average per-capita MDER, a fairer test than one flat threshold."
+di ""
+
+gen below_mder = PC_tot_cal < mder_pc
+gen pop_hh2 = hhweight*hhsize_food
+egen total_pop2 = total(pop_hh2)
+gen pop_share = 100*pop_hh2/total_pop2
+
+di as text "  Household   DEC    Per-capita   DEC minus   % of households   % of national"
+di as text "  size        kcal   MDER kcal    MDER kcal   below OWN MDER    population"
+di as text "  ----------  -----  ----------   ---------   ---------------   -------------"
+forvalues b = 1/6 {
+	local lbl : label hhsize_bucket_lbl `b'
+	quietly summ PC_tot_cal [aw=hhweight] if hhsize_bucket==`b'
+	local dec = r(mean)
+	quietly summ mder_pc [aw=hhweight] if hhsize_bucket==`b'
+	local mder = r(mean)
+	quietly summ below_mder [aw=hhweight] if hhsize_bucket==`b'
+	local pct_below = 100*r(mean)
+	quietly summ pop_share if hhsize_bucket==`b', meanonly
+	local pshare = r(sum)
+	local gap = `dec'-`mder'
+	local sign = cond(`gap'>=0, "+", "")
+	di as text %-12s "`lbl'" %6.0f `dec' "  " %9.0f `mder' "  " "`sign'" %8.0f `gap' "        " %5.1f `pct_below' "%           " %5.1f `pshare' "%"
+}
+
+di ""
+di as result "Takeaway: the DEC-minus-MDER gap flips from positive to negative"
+di as result "between 3 and 4 household members, and keeps widening in the"
+di as result "negative direction as size grows. Households of 4+ people are"
+di as result "~67% of the national population, and their AVERAGE per-capita"
+di as result "DEC sits below their own AVERAGE per-capita minimum requirement --"
+di as result "this is not just a weighting artifact, it's a real, monotonic"
+di as result "gradient by household size that a boss/reviewer can sanity-check"
+di as result "at a glance."
