@@ -20,12 +20,12 @@ Log written to `main.log`. Full execution order also documented in
 - `data_raw` — `$dbase/${survey_year}`, e.g. `input/2024`. Was `data_raw24`
   (year baked into the name itself) until renamed for reusability.
 - `indirect_grp_var` — grouping variable (default `"region"`) for the
-  FATH calorie imputation in `11_Calc_DietaryEnergyConsumption.do` (handbook
+  FATH calorie imputation in `12_Calc_DietaryEnergyConsumption.do` (handbook
   Ch.2 indirect-method step 5). Change here, not in the do-file, to swap
   grouping granularity later.
 - `u5mr` / `cbr` — Mongolia under-5 mortality rate (15.0) and crude birth
   ratio (0.0169), 2024 NSO figures, used in the MDER/ADER/XDER formulas
-  (`10_Calc_DietaryEnergyRequirement.do`). **Promoted from bare literals to
+  (`11_Calc_DietaryEnergyRequirement.do`). **Promoted from bare literals to
   globals (2026-07):** these are survey-year-specific empirical constants, so
   — same reasoning as `survey_year` — they live in one obvious place instead
   of buried in a calculation file. Update both when the survey year changes.
@@ -50,14 +50,21 @@ with `git mv` (history preserved); nothing was deleted.
 | `0 Import Unit.do` | `02_Import_UnitScale.do` | Import |
 | `00C Price deflation.do` | `03_Import_PriceDeflators.do` | Import |
 | `00B MA_Height.do` | `04_Import_AgeClassReference.do` | Import |
-| `00A Equivalence scales.do` | `05_Build_EquivalenceScales.do` | Build |
-| `00D HHsize_Food.do` | `06_Build_HHFoodPartakers.do` | Build |
-| `01 Food.do` | `07_Build_FoodConsumption.do` | Build |
-| `02 Individual.do` | `08_Build_IndividualRoster.do` | Build |
-| `04 Country_NCT.do` | `09_Build_NutrientConversionTable.do` | Build |
-| `05 MDER_ADER_XDER.do` | `10_Calc_DietaryEnergyRequirement.do` | Calc |
-| `06 DEC.do` | `11_Calc_DietaryEnergyConsumption.do` | Calc |
+| *(new file, 2026-07-06)* | `05_Import_IncomeDeciles.do` | Import |
+| `00A Equivalence scales.do` | `06_Build_EquivalenceScales.do` | Build |
+| `00D HHsize_Food.do` | `07_Build_HHFoodPartakers.do` | Build |
+| `01 Food.do` | `08_Build_FoodConsumption.do` | Build |
+| `02 Individual.do` | `09_Build_IndividualRoster.do` | Build |
+| `04 Country_NCT.do` | `10_Build_NutrientConversionTable.do` | Build |
+| `05 MDER_ADER_XDER.do` | `11_Calc_DietaryEnergyRequirement.do` | Calc |
+| `06 DEC.do` | `12_Calc_DietaryEnergyConsumption.do` | Calc |
+| *(new file, 2026-07-06)* | `13_Calc_PoUEstimate.do` | Calc |
 | `03 Household.do` | *(unchanged — disabled, out of scope)* | — |
+
+**Note:** the table above already reflects the *current* (2026-07-06) file
+names. The pipeline was renumbered a second time that day to make room for
+`05_Import_IncomeDeciles.do` and `13_Calc_PoUEstimate.do` — see "2026-07-06
+additions" below for what was added and why.
 
 **Two structural moves (no numeric effect):**
 - **`basicvars` consolidation** — `basicvars.dta` used to be read from raw
@@ -68,13 +75,13 @@ with `git mv` (history preserved); nothing was deleted.
 - **Reference-table joins moved upstream** — `reference_values`,
   `sd_value_0to2`, `sd_value_2to5` used to be joined *inside* the requirement
   calculation (old `05`). They're now attached in `04_Import_AgeClassReference.do`
-  alongside the height/age_class they're keyed to, and `10_Calc_...` merges the
+  alongside the height/age_class they're keyed to, and `11_Calc_...` merges the
   resolved columns instead of touching raw input. Verified bit-identical for
   the reference columns themselves.
 
 **Four deliberate fixes folded in (these DO change numbers, all documented in
 the code with dated comments):**
-1. **`hhsize_food` cumulative-sum bug** (`06_Build_HHFoodPartakers.do`) — old
+1. **`hhsize_food` cumulative-sum bug** (`07_Build_HHFoodPartakers.do`) — old
    code used `gen ... = _N - sum(abs_mem)` (Stata's *running* `sum()`) then
    kept only the first row per household via `collapse (first)`, so households
    got an arbitrary partial-sum instead of the true absent-count. Fixed to
@@ -93,7 +100,7 @@ the code with dated comments):**
    own native-coded `gender` (built from raw `q0103`, never recoded). The
    HSES-native 1=Male/2=Female is the project-wide convention — the 0/1
    `hm_sex` recode is a one-off local to `08`'s ADePT export column only.
-3. **Height-rounding leak** (`10_Calc_DietaryEnergyRequirement.do`) — old code
+3. **Height-rounding leak** (`11_Calc_DietaryEnergyRequirement.do`) — old code
    did `replace height=int(round(height,1))` in place (needed only for the
    integer-cm SD-for-height lookup), which leaked cm-rounding into the general
    weight-for-height formula `BMI × (height/100)²` for **every** age class.
@@ -123,6 +130,80 @@ rest. Indicator/classification building, the calculation math, and
 table/output generation still live together within the Build and Calc stages —
 see "Known architecture debt" below.
 
+## 2026-07-06 additions: full data by default, income deciles, PoU estimate
+
+**Data source swap.** `input/2024/` now holds the **full** (non-de-identified)
+2024 release; the de-identified "spread" release the pipeline was adapted for
+on 2026-07-03 moved to `input/2024 spread/`. Reason: `consumption.dta` (needed
+for income deciles, below) only exists in the full release, and its household
+IDs **cannot be matched to the spread release's IDs at all** — the spread
+release's `identif` is a one-way anonymizing hash with no crosswalk back to
+the real IDs (confirmed: merging both releases' `basicvars.dta` on `identif`
+gives zero matches, despite both covering the same 15,513 households). This
+is a pure folder-swap, not a code change — `$data_raw` (`$dbase/${survey_year}`)
+resolves to whichever folder is named `input/2024`. Every "SPREAD-DATA
+ADAPTATION" guard elsewhere in the pipeline is harmless against full data
+(they're `capture`-guarded or check column existence) **except** the two
+features below, which are explicitly re-enabled now that their inputs exist
+again. `03 Household.do` stays disabled regardless — poverty is out of scope
+independent of data availability.
+
+**Re-enabled in `08_Build_FoodConsumption.do`** (both were disabled only
+because the spread release lacked their inputs, not because they were wrong):
+- **Cluster-level price-imputation rung** restored (household → cluster →
+  aimag/strata/month → national) — per `ref/foodsetup.do`'s own historical
+  note, this rung supplied ~52.8% of all imputed prices.
+- **Income-decile outlier-imputation grouping** restored (`$lev1`="item region
+  urban decile", `$lev2`="item urban decile", `$lev3`="item decile") — full
+  4-level cascade again instead of the spread-data's collapsed 3-level one.
+
+**New: `05_Import_IncomeDeciles.do`.** Reads `consumption.dta`, ranks
+households into population-weighted deciles of real per-adult-equivalent
+expenditure (`xtile decile=totex_rpae [aw=hhweight*hhsize], nq(10)` — same
+formula the original, pre-spread-adaptation code used). Note:
+`consumption.dta`'s own `identif` column is a *different* ID scheme that does
+**not** match this pipeline's `identif` — the real shared key is
+`consumption.dta`'s `household_id` column (verified: matches `basicvars`'
+`identif` for all 15,513 households). Output feeds both the outlier grouping
+above and the Between-CV calculation below.
+
+**New: `13_Calc_PoUEstimate.do`.** An approximate PoU calculation using this
+pipeline's own DEC/MDER outputs and the handbook's CV/skewness derivation
+(Ch.2) — not ADePT-FSM itself, which is what actually produces the official
+number (see file header for the full caveat list). Implements the handbook's
+4-step CV derivation: Step 1 (between-decile CV of DEC, now buildable thanks
+to the file above — **not possible at all against the spread data**, which
+has no income ranking); Step 2 (within-household CV, already computed as
+`cv_r` in `Requirement_admin.dta`); Step 3 (combine via
+`sqrt(CV_between² + CV_within²)`); Step 4 (select the lower of the combined
+CV vs. the raw empirical CV). Uses **log-normal**, not ADePT's default
+skew-normal, because it has a closed-form CDF (Stata's `normal()`) that can
+be verified by hand — expect the true ADePT PoU to differ from this
+approximation. Saves `output/process/PoU_estimate_${survey_year}.dta`.
+
+**Major discovery (not yet fixed — flagged for the user to raise with her
+boss, standalone demo file provided): the pipeline's long-standing "national
+mean DEC" diagnostic is household-weighted, not population-weighted.**
+`12_Calc_DietaryEnergyConsumption.do`'s own diagnostic
+(`summ PC_tot_cal [iw=hhweight] if item==10101`) gives every household equal
+weight regardless of size. But household size correlates strongly and
+negatively with per-capita DEC (`corr = -0.52`: 1-person households average
+3,502 kcal/person/day; 6+-person households average only 1,425 — plausibly a
+mix of fixed-cost effects in per-capita cooking/food-prep accounting and
+genuine differences between household types). Household-weighting therefore
+**overweights small households** relative to their true population share,
+inflating the reported "average person's" DEC. Correctly population-weighting
+(by `hhweight*hhsize_food`, matching the handbook's own CV-by-decile formula)
+gives **~1,808 kcal/person/day, not ~2,068-2,120** — a ~14-15% difference,
+and a margin over MDER (1,786.6) of only ~1.2%, versus the misleadingly
+comfortable ~118% the household-weighted figure implies. This directly
+explains why `13_Calc_PoUEstimate.do`'s PoU comes out much higher (~50%) than
+naive expectations based on the old household-weighted headline number.
+**Not fixed pipeline-wide per explicit user instruction** ("don't fix it
+right now, but I think I will show this to my boss tomorrow") — a standalone,
+non-pipeline demonstration file, `dofiles/Showcase_DEC_Weighting_Bias.do`, was
+built instead (run manually after `00 Master.do`; not called from it).
+
 ## Execution order & per-file notes
 
 *(Section headers below give the current name with the old name in parentheses.
@@ -147,7 +228,7 @@ survey year's input folder must include its own `CPI, FCPI.xlsx` (year, month,
 cpi, fcpi columns) or this file will fail immediately. Source: NSO
 (https://www.1212.mn, Consumer Price Index table).
 
-### `05_Build_EquivalenceScales.do` (was `00A Equivalence scales.do`)
+### `06_Build_EquivalenceScales.do` (was `00A Equivalence scales.do`)
 Builds survey date → individual age → adult/child + age-sex brackets → two
 equivalence scales: `aesize_oecd1` (OECD scale, used later for expenditure
 equivalization) and `aesize_fao` (calorie-weighted scale).
@@ -162,7 +243,7 @@ equivalization) and `aesize_fao` (calorie-weighted scale).
 - `aesize_fao` is essentially unused for the real DEC calculation — the
   handbook explicitly says to use raw household/food-partaker size instead
   (Ch.2 "Conversion in per Person per Day," p.32), and the codebase correctly
-  follows this (see `07_Build_FoodConsumption.do` comment citing the handbook
+  follows this (see `08_Build_FoodConsumption.do` comment citing the handbook
   directly). It only shows up in one narrow outlier check in that file.
 - Had a stray, unrelated debug snippet (`scalar x=3.14159` + broken `display`)
   at the end of the file that crashed the entire pipeline — removed.
@@ -175,7 +256,7 @@ equivalization) and `aesize_fao` (calorie-weighted scale).
   calculations. Candidate for splitting into separate classify-only files if
   ever revisited (see "Known architecture debt" below).
 
-### `06_Build_HHFoodPartakers.do` (was `00D HHsize_Food.do`)
+### `07_Build_HHFoodPartakers.do` (was `00D HHsize_Food.do`)
 Builds `hhsize_food` (food-partaker count, excludes members absent 30+ days).
 **This is what the real per-capita calorie calculation actually uses** — not
 `aesize_fao`. Confirmed via log: `hhsize_food` is always ≤ `hhsize`, never
@@ -190,15 +271,15 @@ reference table: median height (from `height_Mongolia_2018.dta`), BMI/PAL/
 weight-gain constants (`reference_values.dta`), and WHO SD-for-height for
 children 0-5 (`sd_value_0to2.dta`/`sd_value_2to5.dta`). Output:
 `AgeClassReference_${survey_year}.dta` (was `Height_Sattar.dta`). Feeds both
-`08_Build_IndividualRoster.do` (height + age_class only) and
-`10_Calc_DietaryEnergyRequirement.do` (the full reference set).
+`09_Build_IndividualRoster.do` (height + age_class only) and
+`11_Calc_DietaryEnergyRequirement.do` (the full reference set).
 **Expanded in the 2026-07 reorg** — the last three tables used to be joined
 inside old `05`; moved here (see reorg section). Keeps `height` **unrounded**
 and rounds only a separate `height_rounded` for the integer-cm SD lookup (this
 is what fixed the height-rounding leak, reorg fix #3). Uniqueness `assert`s
 guard each join against future duplicate-key data refreshes.
 
-### `07_Build_FoodConsumption.do` (was `01 Food.do`)
+### `08_Build_FoodConsumption.do` (was `01 Food.do`)
 Harmonizes urban diary (7-day) + rural recall (7-day) + food-away-from-home
 data, converts to grams via `unit_scale`, imputes missing unit prices via a
 cascading median (household → cluster → aimag/strata/month → national),
@@ -212,12 +293,12 @@ expenditure via `def_fcpi`).
 - Food-away-from-home (item `21801`) is captured **only as expenditure, never
   quantity** — this is the root design gap behind the big bug below.
 - The `refuse` (waste %) field from the NCT is never applied in the calorie
-  formula (in `11_Calc_DietaryEnergyConsumption.do`). Not yet fixed — low
+  formula (in `12_Calc_DietaryEnergyConsumption.do`). Not yet fixed — low
   priority, since omitting it
   would bias DEC *upward*, not downward, so it isn't the source of any
   underestimate, just a methodological gap versus the handbook's Procedure 1.
 
-### `08_Build_IndividualRoster.do` (was `02 Individual.do`)
+### `09_Build_IndividualRoster.do` (was `02 Individual.do`)
 Builds individual demographics + a large labor-force/employment classification
 block (occupation, industry, sector) + household-head attributes.
 **Architecture note:** the labor-force classification is a big, self-contained
@@ -227,13 +308,13 @@ candidate for separation later. Output filename keeps the pre-existing typo
 silently "fix," since it'd require renaming the actual saved file everywhere
 it's referenced.
 
-### `09_Build_NutrientConversionTable.do` (was `04 Country_NCT.do`)
+### `10_Build_NutrientConversionTable.do` (was `04 Country_NCT.do`)
 Imports/cleans the national nutrient conversion table (NCT) and appends a
 placeholder row for Food-Away-From-Home (item `21801`).
 **This is the root cause of the confirmed DEC bug**: the FATH placeholder row
 here (`~line 72-85`) sets `id/desc/refuse/item_grp/diversity_grp` but never
 fills in `fd_pro/fd_fat/fd_car/fd_fib/fd_kcal` — leaving FATH with no calorie
-value at all. (The fix lives downstream in `11_Calc_DietaryEnergyConsumption.do`,
+value at all. (The fix lives downstream in `12_Calc_DietaryEnergyConsumption.do`,
 not here — this file itself wasn't changed, since the fix needed data only
 available later in the pipeline.)
 
@@ -282,7 +363,7 @@ it's out of scope; don't "fix" that.
   one file — candidate for separation, but out of scope to touch given the
   poverty restriction.
 
-### `10_Calc_DietaryEnergyRequirement.do` (was `05 MDER_ADER_XDER.do`)
+### `11_Calc_DietaryEnergyRequirement.do` (was `05 MDER_ADER_XDER.do`)
 Computes Minimum/Average/Maximum Dietary Energy Requirements per individual
 (FAO BMR-based formulas using age/sex/BMI/PAL) and the within-CV component.
 Reads `indivdual_${survey_year}` (the roster from `08`) + the reference columns
@@ -292,12 +373,12 @@ comments): the gender-coding bug (girls 0-5 getting missing XDER, fix #2) and
 the height-rounding leak (fix #3). `u5mr`/`cbr` now read from globals (fix #4).
 The three raw-reference joins it used to do are gone — moved to `04`.
 
-### `11_Calc_DietaryEnergyConsumption.do` (was `06 DEC.do`)
+### `12_Calc_DietaryEnergyConsumption.do` (was `06 DEC.do`)
 Converts food quantities to calories via the NCT, aggregates to household/
 per-capita DEC (`PC_tot_cal`).
 **Confirmed, fixed bug:** Food-Away-From-Home (item `21801`, ~14.9% of
 households) had no calorie data (root cause in
-`09_Build_NutrientConversionTable.do`), so
+`10_Build_NutrientConversionTable.do`), so
 `egen total()` silently zeroed its contribution — this was the actual reason
 `PC_tot_cal` was implausibly low (~1,941 kcal/person/day vs. the handbook's
 ~2,000-2,500 expected range). **Fixed** by adapting the handbook's 6-step
@@ -314,24 +395,39 @@ but not exhaustively audited):
 - Large item-level divergences between Atwater-derived `kcal` and tabulated
   `fd_kcal`/`calories` (up to ±300 kcal/100g for some items) — worth checking
   the source NCT Excel for transcription errors if DEC ever looks off again.
+- **The `[iw=hhweight]` diagnostic in this file is household-weighted, not
+  population-weighted** — see "2026-07-06 additions" above for why that
+  matters (~2,068-2,120 vs. the population-weighted ~1,808 kcal/person/day).
+  Not fixed yet (explicit user instruction to hold off); see
+  `dofiles/Showcase_DEC_Weighting_Bias.do`.
 
 ## Data variants in `input/`: full vs. spread vs. 2018
 
-`input/` now holds multiple data releases sharing the same do-files where
+`input/` holds multiple data releases sharing the same do-files where
 possible. **Check what `input/${survey_year}/` actually points at before
-assuming the pipeline will "just work"** — the active `00`-`06` files were
-adapted for **2024 spread data specifically**; running them against `2024
-full` needs no changes (spread is a subset), but running them against `2018`
-does not work at all (see below) without deep rework.
+assuming the pipeline will "just work"** — as of 2026-07-06 the default is
+the **full** 2024 release (see "2026-07-06 additions" above for why); running
+against `2018` does not work at all (see below) without deep rework.
 
-- **`input/2024 full/`** — the complete, detailed 2024 release (has `cluster`,
+- **`input/2024/`** — the complete, detailed 2024 release (has `cluster`,
   `household_id`, `interviewer`, `consumption.dta`, `all_inc_exp.dta`,
   `deflators.dta`, `q0104y/m/d` birthdates, `q0423a`, diary `visitor13`/
-  `ndays13` etc.). This is what the pipeline was originally built and verified
-  against (`PC_tot_cal` ≈ 2,068.8 kcal/person/day).
-- **`input/2024/`** — the de-identified "**spread**" release: same survey,
-  same question numbering, but several columns stripped for
+  `ndays13` etc.). **This is the default data since 2026-07-06** (was
+  `input/2024 full/` before the folder swap). This is what the pipeline was
+  originally built and verified against (`PC_tot_cal` ≈ 2,068.8 kcal/person/day,
+  household-weighted -- see the weighting caveat above).
+- **`input/2024 spread/`** — the de-identified "**spread**" release (was
+  `input/2024/` before the folder swap, 2026-07-03 through 2026-07-06): same
+  survey, same question numbering, but several columns stripped for
   disclosure-avoidance, and `hses_id` already renamed to `identif` throughout.
+  **No longer the default** — its `identif` is a one-way anonymizing hash
+  with no crosswalk to the full release's real IDs, which blocks anything
+  needing `consumption.dta` (income deciles, the Between-CV PoU component).
+  The pipeline still runs correctly against this folder if ever needed again
+  (rename it back to `input/2024/` and move the full release aside) — nothing
+  about the do-files themselves depends on which folder is active, only the
+  cluster-imputation and income-decile features would need re-disabling (see
+  their own "SPREAD-DATA ADAPTATION" comments in `08_Build_FoodConsumption.do`).
   Missing vs. full: `cluster`, `household_id`, `newsoum`, `bag`,
   `interviewer`, `supervisor`, several `hhweight_*` variants (from
   `basicvars.dta`); `q0104y/q0104m/q0104d` (birthdate) and `q0423a` (open-text
@@ -342,27 +438,31 @@ does not work at all (see below) without deep rework.
   notes above, all marked "SPREAD-DATA ADAPTATION (2026-07-03)" in the code).
   Result after adaptation: `PC_tot_cal` ≈ 2,068.3 kcal/person/day — within
   0.02% of the full-data run, despite real methodology losses (below).
-  **Real, non-cosmetic losses from adapting to spread data** (flagged in code
-  comments, not silently absorbed):
-  - `07_Build_FoodConsumption.do`'s price-imputation cascade lost its
+  **Real, non-cosmetic losses from adapting to spread data, all REVERTED
+  2026-07-06 now that full data is the default** (kept here for history, and
+  in case this folder is ever made the default again):
+  - `08_Build_FoodConsumption.do`'s price-imputation cascade lost its
     **cluster-level rung** (household → ~~cluster~~ → aimag/strata/month →
     national). Per `ref/foodsetup.do`'s own historical note, cluster supplied
-    ~52.8% of all imputed prices — the single most-used rung. Now falls
-    straight to aimag.
+    ~52.8% of all imputed prices — the single most-used rung. Fell straight to
+    aimag while spread data was active. **Restored** (see "2026-07-06
+    additions").
   - The outlier-imputation grouping (`$lev1-3` in
-    `07_Build_FoodConsumption.do`) lost the
+    `08_Build_FoodConsumption.do`) lost the
     **income-decile** dimension entirely, since building it required
-    `consumption.dta` (absent). Cascade is effectively 3 levels instead of 4
-    (region/urban/item → urban/item → item, with the last two now identical).
-  - `03 Household.do` (poverty) is **entirely disabled** in `00 Master.do` —
-    its 3 required inputs don't exist in the spread folder at all. Confirmed
-    harmless to DEC/MDER/PoU (not consumed by `05`/`06`), and out of scope
-    anyway (see the poverty caveat above).
+    `consumption.dta` (absent). Was effectively 3 levels instead of 4 while
+    spread data was active. **Restored** (see "2026-07-06 additions").
+  - `03 Household.do` (poverty) is **entirely disabled** in `00 Master.do`,
+    independent of which data folder is active — out of scope regardless
+    (see the poverty caveat above), not just a spread-data limitation. This
+    one is NOT reverted and should stay disabled.
   - One genuine data anomaly surfaced (not a structural issue): a
     `consumed==1`-but-zero-quantity mutton record under a re-numbered
     household ID, resolved generically (deferring to the zero-quantity
     evidence) since the cluster-peer context the original hardcoded fix used
-    isn't reconstructable without `cluster`.
+    isn't reconstructable without `cluster`. This fix is harmless against
+    full data too (the `replace consumed=0 if ...` condition is data-driven,
+    not ID-driven), so it was left as-is rather than reverted.
 - **`input/2018/`** — real 2018 HSES raw data (renamed from downloaded
   filenames like `01_hhold (9).dta` → `01_hhold.dta`, etc.). **Structurally
   different from 2024, not just missing columns** — a different survey design
@@ -400,7 +500,7 @@ diagnostic tool spanning 2018-2025, not part of the PoU pipeline at all.
 **What was actually done:** only `dofiles/ref/foodsetup.do` was adapted (it's
 the food-diary *cleaning* script — parsing, price/quantity outlier flagging,
 and a price-imputation cascade structurally identical to
-`07_Build_FoodConsumption.do`'s).
+`08_Build_FoodConsumption.do`'s).
 Two fixes: redirected its 3 hardcoded path globals (`data2018`/`workdata`/
 `worklog`) to `input/2018`, `temp/2018work`, `temp/2018log`; guarded its
 `rename hses_id identif` (2018 data already ships `identif`). Ran clean.
@@ -432,7 +532,7 @@ methodology in this codebase is sound.
 
 **Note:** `00 Master.do`'s `survey_year` is set to `2024`. Even if someone
 sets it to `2018`, that does **not** mean `00 Master.do` works against 2018
-data; none of the numbered pipeline files (`01`–`11`) were adapted for 2018's
+data; none of the numbered pipeline files (`01`-`13`) were adapted for 2018's
 different survey design. The 2018 result above came entirely from the
 standalone `foodsetup.do` + scratchpad route, never through `00 Master.do`.
 
@@ -449,10 +549,10 @@ be separate: **clean** (fix raw data-entry issues) → **classify/indicator**
 **aggregate** (explicit individual→household level transitions) → **combine**
 (merge everything, no new logic) → **calculate** (MDER/DEC math) →
 **table/output** (final admin-level collapse + ADePT export). Concretely:
-`05_Build_EquivalenceScales.do` mixes date-cleaning + age classification + two
-unrelated equivalence scales; `08_Build_IndividualRoster.do` buries a large
+`06_Build_EquivalenceScales.do` mixes date-cleaning + age classification + two
+unrelated equivalence scales; `09_Build_IndividualRoster.do` buries a large
 labor-classification block inside roster-building; `03 Household.do` mixes
-expenditure/income/poverty; `10_Calc_...` mixes the requirement math with its
+expenditure/income/poverty; `11_Calc_...` mixes the requirement math with its
 admin-level table aggregation. The user has flagged indicator/calculation/
 table-output separation as the next round's target — use the current Import/
 Build/Calc structure as the starting point rather than redoing it. Not a

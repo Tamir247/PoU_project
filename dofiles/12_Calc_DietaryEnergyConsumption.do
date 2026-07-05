@@ -113,7 +113,8 @@ compare kcal fd_kcal
 * FIX (2026-07-01, Claude; rebuilt 2026-07-02 on the handbook's 6-step
 * indirect/unit-value method, Ch.2): item 21801 (Гадуур хооллолт / Food-Away-
 * From-Home) has NO nutrient data in Country_nct_2024_with_Foodout.dta -- the
-* placeholder row appended for it in "04 Country_NCT.do" (~line 72-85) only
+* placeholder row appended for it in "10_Build_NutrientConversionTable.do"
+* (~line 72-85) only
 * sets id/desc/refuse/item_grp/diversity_grp and never fills fd_pro/fd_fat/
 * fd_fib/fd_car/fd_kcal. That left `kcal` (and therefore hh_cal/pc_cal above)
 * MISSING for every one of the 1,549 households (~14.9% of the sample) that

@@ -17,15 +17,15 @@
 *   2) Build age-sex classes used by FAO requirement formulas.
 *   3) Attach height, BMI/PAL/weight-gain, and SD-for-height references,
 *      all keyed off age_class (or gender+height).
-*   4) Save one reference file for "10_Calc_DietaryEnergyRequirement.do" and
-*      "08_Build_IndividualRoster.do" to merge from.
+*   4) Save one reference file for "11_Calc_DietaryEnergyRequirement.do" and
+*      "09_Build_IndividualRoster.do" to merge from.
 *
 * PIPELINE REORG (2026-07-05): this file used to attach only height (hence
 * the old name "00B MA_Height.do" and old output "Height_Sattar.dta"). It now
 * also attaches the "reference_values" (BMI/PAL/weight-gain constants) and
 * "sd_value_0to2"/"sd_value_2to5" (WHO growth-standard SD-for-height, ages
 * 0-5) tables that used to be joined directly inside "05 MDER_ADER_XDER.do"
-* (now "10_Calc_DietaryEnergyRequirement.do") -- i.e. a calculation file
+* (now "11_Calc_DietaryEnergyRequirement.do") -- i.e. a calculation file
 * reaching into raw "input/" data. reference_values (keyed by age_class alone)
 * moves over with no behavior change, verified bit-identical against the old
 * code's output.
@@ -45,7 +45,7 @@
 * 2024 sample were affected. This file builds "gender" straight from raw
 * q0103 (see "rename (q0103 q0105y) (gender age)" below) and never recodes
 * it, so it already uses the correct/native coding -- no rename-to-hm_sex
-* detour, so no mismatch. "10_Calc_DietaryEnergyRequirement.do" now gets
+* detour, so no mismatch. "11_Calc_DietaryEnergyRequirement.do" now gets
 * sd_0to2/SD_2to5 pre-resolved from here instead of re-joining them itself,
 * so this fix applies automatically once that file stops doing its own
 * (buggy) join -- see the fix note there.
@@ -177,7 +177,7 @@
 	*** rounded to the nearest whole cm. Uses a separate "height_rounded" var
 	*** (via a rename-shuffle -- joinby needs matching column names on both
 	*** sides) so the real "height" column, used elsewhere (e.g. merged into
-	*** "08_Build_IndividualRoster.do"), is never altered by the rounding --
+	*** "09_Build_IndividualRoster.do"), is never altered by the rounding --
 	*** only sd_0to2/SD_2to5 depend on the rounded value. height_rounded is
 	*** kept (not dropped) in the saved file so a future reader can see
 	*** exactly what height value produced a given sd_0to2/SD_2to5 without

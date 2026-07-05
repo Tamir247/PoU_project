@@ -284,14 +284,15 @@
 		sort identif item
 
 		** Merge basic vars
-		* SPREAD-DATA ADAPTATION (2026-07-03): "cluster", "newsoum", "bag"
-		* don't exist in the spread release's basicvars.dta -- dropped from
-		* this merge's keepusing() list. See this file's cluster-level price
-		* imputation note further below for the one place this actually
-		* matters for a calculation.
+		* SPREAD-DATA ADAPTATION (2026-07-03), reverted (2026-07-06): "cluster",
+		* "newsoum", "bag" don't exist in the spread release's basicvars.dta,
+		* so were dropped from this merge's keepusing() list. Now that the
+		* pipeline's default data is the full (non-spread) release again (see
+		* CLAUDE.md "Data variants"), "cluster" is restored here and the
+		* cluster-level price-imputation rung further below is re-enabled.
 		* PIPELINE REORG (2026-07-05): repointed from "$data_raw/basicvars.dta"
 		* to "01_Import_BasicVars.do"'s passthrough output -- same columns.
-		merge m:1 identif using "$data_temp/basicvars_${survey_year}.dta", keepus(urban region location strata newaimag hhsize hhweight month quarter) nogen
+		merge m:1 identif using "$data_temp/basicvars_${survey_year}.dta", keepus(cluster urban region location strata newaimag hhsize hhweight month quarter) nogen
 
 		order urban region location strata newaimag hhsize hhweight month quarter, before(identif)
 		order survey perday hhsize aesize_fao hhweight month quarter out, last
@@ -333,24 +334,22 @@
 		* fixing unit values - for own use and free food
 		***************************
 			* SPREAD-DATA ADAPTATION (2026-07-03), REAL METHODOLOGICAL CHANGE,
-			* not just a rename: "cluster" doesn't exist in the spread
+			* REVERTED (2026-07-06): "cluster" didn't exist in the spread
 			* release, so the cluster-level rung of the price-imputation
 			* cascade (household -> cluster -> aimag/strata/month ->
-			* strata/month -> month -> national) can't be computed. Not
-			* cosmetic: a note in this project's legacy reference code
-			* (ref/foodsetup.do:1624) records that the cluster level
-			* historically supplied ~52.8% of all imputed prices -- the
-			* single most-used rung of the ladder. Without it, imputation
-			* falls straight through to the aimag/strata level for every
-			* household that would otherwise have used a cluster-level
-			* price. Commented out (not deleted) and flagged here rather
-			* than silently absorbed. Original:
-			*   * cluster level
-			*   	* now some clusters have more than 1 hhweight (due to the attempt of capturing informality)
-			*   use "$data_temp/foodtemp1.dta", clear
-			*   	collapse (median) clusterprice=aprice [aw=hhweight], by(cluster item)
-			*   tempfile temp1
-			*   save `temp1', replace
+			* strata/month -> month -> national) couldn't be computed. Per
+			* this project's legacy reference code (ref/foodsetup.do:1624),
+			* the cluster level historically supplied ~52.8% of all imputed
+			* prices -- the single most-used rung of the ladder. Now that the
+			* pipeline's default data is the full (non-spread) release again
+			* (see CLAUDE.md "Data variants"), "cluster" is available and this
+			* rung is restored to its original form.
+			* cluster level
+			* now some clusters have more than 1 hhweight (due to the attempt of capturing informality)
+			use "$data_temp/foodtemp1.dta", clear
+				collapse (median) clusterprice=aprice [aw=hhweight], by(cluster item)
+			tempfile temp1
+			save `temp1', replace
 
 			* aimag level
 			use "$data_temp/foodtemp1.dta", clear
@@ -382,9 +381,11 @@
 			egen hhprice      = median(aprice), by(identif item)
 			compress
 			
-				* SPREAD-DATA ADAPTATION (2026-07-03): cluster-level merge
-				* removed along with the cluster-level collapse above (see
-				* note there).
+				* SPREAD-DATA ADAPTATION (2026-07-03), REVERTED (2026-07-06):
+				* cluster-level merge restored now that "cluster" is
+				* available again (full data default) -- see note above.
+				sort cluster item
+					merge m:m cluster item using `temp1', nogen
 				sort newaimag strata month item
 					merge m:m newaimag strata month item using `temp2', nogen
 				sort strata month item
@@ -397,15 +398,16 @@
 				sort identif item
 
 				label var hhprice "Household level price"
+				label var clusterprice "Cluster level price"
 				label var aimagprice "Aimag level price"
 				label var strataprice "Strata level price"
 				label var monthprice "Month level price"
-				label var itemprice "National level price"		
+				label var itemprice "National level price"
 
 		gen imprice = aprice
 			order imprice, after(aprice)
 			
-			foreach v of varlist hhprice aimagprice strataprice monthprice itemprice {
+			foreach v of varlist hhprice clusterprice aimagprice strataprice monthprice itemprice {
 					replace `v'=. if consumed==0
 				}
 
@@ -414,9 +416,11 @@
 		count if imprice==. & hhprice!=.
 		replace imprice=hhprice if imprice==. & hhprice!=.
 
-		* SPREAD-DATA ADAPTATION (2026-07-03): cluster-level imputation step
-		* removed along with clusterprice above -- falls through directly to
-		* aimag level now. See note further up for the scope of this change.
+		* SPREAD-DATA ADAPTATION (2026-07-03), REVERTED (2026-07-06):
+		* cluster-level imputation rung restored -- see note above.
+		count if imprice==.
+		count if imprice==. & clusterprice!=.
+		replace imprice=clusterprice if imprice==. & clusterprice!=.
 
 		count if imprice==.
 		count if imprice==. & aimagprice!=.
@@ -552,15 +556,15 @@
 		***************************
 
 		* SPREAD-DATA ADAPTATION (2026-07-03), REAL METHODOLOGICAL CHANGE,
-		* not just a rename: input/2024/consumption.dta -- the file this
-		* block reads to build an income-decile variable -- does not exist
-		* at all in the spread release (unlike "cluster", this isn't a
-		* stripped column, the whole file is absent, along with
-		* all_inc_exp.dta and deflators.dta). Without it, "decile" cannot be
-		* built, so it's dropped from the outlier-imputation grouping levels
-		* below (see lev1-lev3) rather than substituted with something else.
-		* Flagging clearly here per instruction, since this is a real loss of
-		* imputation granularity, not cosmetic. Original:
+		* REVERTED (2026-07-06): input/2024/consumption.dta -- the file this
+		* block needs to build an income-decile variable -- didn't exist at
+		* all in the spread release. Now that the pipeline's default data is
+		* the full (non-spread) release (see CLAUDE.md "Data variants"),
+		* "decile" is available again. Rather than re-reading consumption.dta
+		* here (the original approach, shown below for reference), this now
+		* merges from "05_Import_IncomeDeciles.do"'s shared output, so
+		* consumption.dta is only ever read from one place in the pipeline.
+		* Original:
 		*   preserve
 		*   	use "$data_raw/consumption", clear
 		*   	rename identif hses_id
@@ -574,6 +578,10 @@
 		*   tab _m
 		*   drop if _m==2
 		*   drop _m
+		joinby identif using "$data_temp/income_deciles_${survey_year}", unm(b)
+			tab _m
+			drop if _m==2
+			drop _m
 
 		*** Hemjee ni 3 sigmagaar yalgagdchaad baigaa ugugdliihuu median hemjeegeer orluulga hj bn *****
 		*** Uuruur helbel bid 959 utga flag-aar todorhoilogdoj bn timees bid tedniig usgahguigeer median hemjeegeer orluulga hh gej bn
@@ -583,15 +591,15 @@
 		*** 30 aas baga bol daraagiin tuwshnii utgiig awch tootsno gesen tohiruulgig oruulj bn gesen ug yum.
 		*** n>30 bol suffiecient tuuwer gej uzej bgaa gsn ug yum
 
-		* SPREAD-DATA ADAPTATION (2026-07-03): "decile" removed from all
-		* three levels below (was: lev1 "item region urban decile", lev2
-		* "item urban decile", lev3 "item decile"). Side effect worth
-		* knowing: lev3 is now identical to lev4 ("item" alone), so this
-		* cascade is effectively 3 distinct fallback levels instead of 4
-		* until decile is available again.
-		global lev1 "item region urban"
-		global lev2 "item urban"
-		global lev3 "item"
+		* SPREAD-DATA ADAPTATION (2026-07-03), REVERTED (2026-07-06): "decile"
+		* is restored to all three levels below now that it's available again
+		* (full data default) -- was dropped when the pipeline ran against
+		* the de-identified spread release, which left lev3 identical to lev4
+		* (both just "item"), reducing the cascade to 3 distinct fallback
+		* levels instead of 4. Full 4-level cascade restored.
+		global lev1 "item region urban decile"
+		global lev2 "item urban decile"
+		global lev3 "item decile"
 		global lev4 "item "
 
 		** daily_pc_qpur
