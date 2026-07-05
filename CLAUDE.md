@@ -511,30 +511,59 @@ hit 580,000+ kcal/person/day).
 
 Its output (`temp/2018work/tempfood.dta`: cleaned daily quantities in
 *original survey units*, not grams, keyed by `identif`/`itemcode`/`tenth`)
-was then fed through **this project's own, already-verified DEC logic**
-(ad hoc scratchpad scripts, not saved in `dofiles/` — reused
+feeds **this project's own, already-verified DEC logic** — reusing
 `input/unit_scale.dta` and `output/process/Country_nct_2024_with_Foodout.dta`
 directly, after confirming 2018 and 2024 share the same item-code scheme and
 near-identical gram-conversion factors via `input/Unit_scale.xlsx`'s "units"
 sheet, which has both years' figures side by side — only one item, Pizza/
 10114, differs, and it's excluded from calorie calc as an "out" category in
-both years anyway).
+both years anyway.
 
-**Result: our computed DEC ≈ 2,341-2,385 kcal/person/day vs. ADePT's 2,461**
-(~3-5% gap). Expected direction and magnitude given what was deliberately
-left out of this scoped exercise: food-away-from-home wasn't processed at
-all (would add calories back, per the 2024 FATH fix precedent), no full
-price-imputation cascade or Procedure-2 indirect-method calories for
-zero-quantity items (both would add, not subtract), and raw `hhsize` instead
-of a partaker-adjusted size. Landing within 5%, in the expected direction, is
-a good independent sanity check that the core Atwater-formula/unit-conversion
-methodology in this codebase is sound.
+**2026-07-06: turned into a proper, saved, separate codebase** (was ad hoc
+scratchpad scripts before this, never committed) — deliberately kept apart
+from the numbered 2024 pipeline (`01`-`13`) rather than merged into it, since
+2018's data shape is fundamentally incompatible (see above). Lives in
+`dofiles/2018/`:
+- `00_Master_2018.do` — orchestrator; sets 2018-specific globals/paths, calls
+  `ref/foodsetup.do` (unchanged, reused, not duplicated) then the file below.
+  Note: `foodsetup.do` manages its own log (closes this master's log, opens
+  `temp/2018log/setup_food.log`) — the master re-opens its own log
+  (`2018_main.log`, append mode) afterward so step 2's output is captured too.
+- `01_Calc_DEC_2018.do` — the DEC calculation itself (same Atwater-formula
+  logic as `12_Calc_DietaryEnergyConsumption.do`), reporting **both**
+  household-weighted and population-weighted DEC (see "2026-07-06 additions"
+  above for why these differ) — no `hhsize_food` equivalent exists for 2018
+  (no `q0113`/`q0112a`), so population-weighting uses raw `hhweight*hhsize`.
+  Saves `output/process/2018/DEC_2018.dta`.
+
+**Not attempted for 2018** (confirmed by checking `input/2018/` directly —
+none of these files exist there): income-decile CV / PoU estimate (no
+`consumption.dta`), price deflation / FATH indirect-imputation calorie fix
+(no `CPI, FCPI.xlsx`), MDER/ADER/XDER (out of scope for this exercise).
+
+**Result (re-verified 2026-07-06, fresh run):**
+- Household-weighted DEC: **2,384.8** kcal/person/day (untrimmed), **2,341.0**
+  (1%/99%-trimmed) — matches the original validation range (2,341-2,385)
+  exactly, confirming the rebuild into a saved codebase is faithful.
+- Population-weighted DEC: **2,049.5** kcal/person/day — same household-size
+  effect as 2024 (larger households → lower per-capita DEC) pulls this below
+  the household-weighted figure, same direction and similar relative
+  magnitude as the 2024 case (~2,121 → ~1,808).
+- ADePT-FSM 2018 reference: 2,461.0. Household-weighted lands within ~3-5%
+  (expected gap: food-away-from-home not processed, no full price-imputation
+  cascade or Procedure-2 indirect-method calories for zero-quantity items,
+  raw `hhsize` instead of a partaker-adjusted size — all would add calories
+  back, not subtract). **Not confirmed which weighting convention ADePT's own
+  2,461 figure itself uses** — if it's already population-weighted, the
+  population-weighted comparison above (~16.7% gap) would be the more
+  relevant one; this isn't resolved.
 
 **Note:** `00 Master.do`'s `survey_year` is set to `2024`. Even if someone
 sets it to `2018`, that does **not** mean `00 Master.do` works against 2018
 data; none of the numbered pipeline files (`01`-`13`) were adapted for 2018's
-different survey design. The 2018 result above came entirely from the
-standalone `foodsetup.do` + scratchpad route, never through `00 Master.do`.
+different survey design. Use `dofiles/2018/00_Master_2018.do` for 2018 instead
+— entirely separate entry point, separate globals, separate output folder
+(`output/process/2018/`).
 
 ## Known architecture debt (not urgent, don't refactor mid-audit)
 
